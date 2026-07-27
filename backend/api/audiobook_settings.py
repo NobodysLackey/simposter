@@ -20,6 +20,8 @@ router = APIRouter()
 
 _SETTINGS_PATH = Path(settings.SETTINGS_DIR) / "audiobook_settings.json"
 
+AudibleRegion = Literal["au", "ca", "de", "es", "fr", "in", "it", "jp", "us", "uk"]
+
 
 class AudiobookLibraryMapping(BaseModel):
     id: str
@@ -42,6 +44,7 @@ class AudiobookSettings(BaseModel):
     default_fade: int = Field(default=15, ge=0, le=100)
     default_grain: int = Field(default=15, ge=0, le=60)
     default_vignette: int = Field(default=15, ge=0, le=100)
+    audible_region: AudibleRegion = "us"
     google_books_api_key: str = Field(
         default_factory=lambda: os.getenv("GOOGLE_BOOKS_API_KEY", "")
     )
