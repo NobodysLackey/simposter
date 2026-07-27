@@ -27,8 +27,12 @@ type AudiobookSettings = {
   default_text_enabled: boolean
   default_text: string
   default_logo_mode: 'original' | 'match' | 'hex' | 'none'
+  default_matte: number
+  default_fade: number
   default_grain: number
   default_vignette: number
+  google_books_api_key: string
+  google_books_daily_limit: number
 }
 
 type PresetRecord = {
@@ -41,6 +45,17 @@ type LibraryEntry = {
   mapping: LibraryMapping
 }
 
+type GoogleBooksUsage = {
+  configured: boolean
+  date: string
+  used: number
+  limit: number
+  remaining: number
+  hard_cap: number
+  minimum_interval_seconds: number
+  cache_days: number
+}
+
 const apiBase = getApiBase()
 const router = useRouter()
 const { success, error: notifyError } = useNotification()
@@ -51,11 +66,15 @@ const defaults: AudiobookSettings = {
   default_preset_id: 'default',
   save_beside_media: true,
   fallback_save_path: '/config/output/{library}/{author}/{title}',
-  default_text_enabled: true,
+  default_text_enabled: false,
   default_text: '{title}\n{author}',
   default_logo_mode: 'none',
-  default_grain: 0,
-  default_vignette: 20,
+  default_matte: 0,
+  default_fade: 15,
+  default_grain: 15,
+  default_vignette: 15,
+  google_books_api_key: '',
+  google_books_daily_limit: 25,
 }
 
 const settings = ref<AudiobookSettings>({ ...defaults })
@@ -65,6 +84,9 @@ const loading = ref(true)
 const saving = ref(false)
 const message = ref('')
 const errorMessage = ref('')
+const googleTesting = ref(false)
+const googleTestResult = ref('')
+const googleUsage = ref<GoogleBooksUsage | null>(null)
 
 const displayedPresets = computed<PresetRecord[]>(() =>
   presets.value.length ? presets.value : [{ id: 'default', name: 'Default' }],
@@ -117,6 +139,56 @@ const loadPresets = async () => {
   presets.value = Array.isArray(data?.audiobookcover?.presets) ? data.audiobookcover.presets : []
 }
 
+const loadGoogleStatus = async () => {
+  try {
+    const response = await fetch(`${apiBase}/api/audiobook-settings/google-books-status`)
+    if (!response.ok) return
+    googleUsage.value = await response.json()
+  } catch {
+    googleUsage.value = null
+  }
+}
+
+const testGoogleBooks = async () => {
+  const apiKey = settings.value.google_books_api_key.trim()
+  if (!apiKey) {
+    googleTestResult.value = 'Enter an API key first.'
+    return
+  }
+
+  googleTesting.value = true
+  googleTestResult.value = ''
+  try {
+    const response = await fetch(`${apiBase}/api/test-google-books`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        daily_limit: settings.value.google_books_daily_limit,
+      }),
+    })
+    const data = await response.json()
+    if (data.status === 'ok') {
+      googleTestResult.value = `✓ Valid${data.example ? ` — ${data.example}` : ''}`
+    } else {
+      googleTestResult.value = `Error: ${data.error || 'Google Books rejected the key.'}`
+    }
+    if (data.usage) {
+      googleUsage.value = {
+        configured: true,
+        hard_cap: 50,
+        minimum_interval_seconds: 5,
+        cache_days: 7,
+        ...data.usage,
+      }
+    }
+  } catch (cause) {
+    googleTestResult.value = `Error: ${cause instanceof Error ? cause.message : 'Key test failed.'}`
+  } finally {
+    googleTesting.value = false
+  }
+}
+
 const save = async () => {
   saving.value = true
   message.value = ''
@@ -130,6 +202,7 @@ const save = async () => {
     if (!response.ok) throw new Error(await response.text())
     message.value = 'Audiobook settings saved.'
     success('Audiobook settings saved')
+    await loadGoogleStatus()
   } catch (cause) {
     const text = cause instanceof Error ? cause.message : 'Could not save audiobook settings.'
     errorMessage.value = text
@@ -147,6 +220,7 @@ onMounted(async () => {
     if (settings.value.library_mappings.length === 0) {
       settings.value.library_mappings = libraries.value.map((library) => createMapping(library, true))
     }
+    await loadGoogleStatus()
   } catch (cause) {
     errorMessage.value = cause instanceof Error ? cause.message : 'Could not load audiobook settings.'
   } finally {
@@ -161,7 +235,7 @@ onMounted(async () => {
       <div>
         <p class="kicker">Settings</p>
         <h2>🎧 Audiobooks</h2>
-        <p class="subtitle">Configure Plex music libraries, editor defaults, presets, and cover save behavior.</p>
+        <p class="subtitle">Configure Plex music libraries, cover providers, editor defaults, presets, and save behavior.</p>
       </div>
       <div class="header-actions">
         <button class="secondary" @click="router.push({ name: 'audiobooks' })">Back to Audiobooks</button>
@@ -186,6 +260,65 @@ onMounted(async () => {
             <input v-model="settings.enabled" type="checkbox" />
             <span>{{ settings.enabled ? 'Enabled' : 'Disabled' }}</span>
           </label>
+        </div>
+      </section>
+
+      <section class="section glass">
+        <div class="section-heading">
+          <div>
+            <h3>Google Books Cover Search</h3>
+            <p>Add and verify the key used for Google Books cover options.</p>
+          </div>
+          <span v-if="googleUsage" class="count-chip">
+            {{ googleUsage.used }}/{{ googleUsage.limit }} requests today
+          </span>
+        </div>
+
+        <div class="key-row">
+          <label class="field-label key-field">
+            Google Books API Key
+            <input
+              v-model="settings.google_books_api_key"
+              type="password"
+              autocomplete="off"
+              placeholder="Paste your Google Books API key"
+            />
+          </label>
+          <button
+            class="secondary test-button"
+            type="button"
+            :disabled="googleTesting || !settings.google_books_api_key.trim()"
+            @click="testGoogleBooks"
+          >
+            {{ googleTesting ? 'Testing…' : 'Test' }}
+          </button>
+        </div>
+        <p
+          v-if="googleTestResult"
+          :class="['api-test-result', googleTestResult.startsWith('✓') ? 'success-text' : 'error-text']"
+        >
+          {{ googleTestResult }}
+        </p>
+
+        <label class="field-label limit-field">
+          Daily Google request safety limit
+          <input v-model.number="settings.google_books_daily_limit" type="number" min="1" max="50" />
+          <small>
+            Default 25; absolute application cap 50. Tests count as one request. The counter resets at 00:00 UTC.
+          </small>
+        </label>
+
+        <div class="safety-panel">
+          <strong>Built-in request protections</strong>
+          <p>
+            Google Books is never called by batch, webhook, scheduler, or library-scan workflows. Results are cached for
+            {{ googleUsage?.cache_days || 7 }} days, uncached requests are separated by at least
+            {{ googleUsage?.minimum_interval_seconds || 5 }} seconds, and refresh cannot bypass the daily cap.
+          </p>
+          <p v-if="googleUsage">
+            {{ googleUsage.remaining }} requests remain for {{ googleUsage.date }}. The hard cap cannot exceed
+            {{ googleUsage.hard_cap }} requests per day.
+          </p>
         </div>
       </section>
 
@@ -255,6 +388,16 @@ onMounted(async () => {
           </label>
 
           <label class="field-label">
+            Default Matte Height: {{ settings.default_matte }}%
+            <input v-model.number="settings.default_matte" type="range" min="0" max="50" />
+          </label>
+
+          <label class="field-label">
+            Default Fade Height: {{ settings.default_fade }}%
+            <input v-model.number="settings.default_fade" type="range" min="0" max="100" />
+          </label>
+
+          <label class="field-label">
             Default Grain: {{ settings.default_grain }}
             <input v-model.number="settings.default_grain" type="range" min="0" max="60" />
           </label>
@@ -319,14 +462,14 @@ h2 { font-size: 28px; }
 .toggle-row { display: inline-flex; align-items: center; gap: 9px; color: #dce6ff; font-weight: 600; }
 .toggle-row input { width: 18px; height: 18px; }
 .text-toggle { margin-bottom: 16px; }
-.count-chip { padding: 5px 9px; border-radius: 999px; background: rgba(61,214,183,.12); color: var(--accent); font-size: 12px; }
+.count-chip { padding: 5px 9px; border-radius: 999px; background: rgba(61,214,183,.12); color: var(--accent); font-size: 12px; white-space: nowrap; }
 .library-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 14px; }
 .library-card { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,.025); }
 .library-toggle { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 9px; margin-bottom: 14px; }
 .library-toggle input { grid-row: 1 / 3; width: 18px; height: 18px; }
 .library-toggle span { color: var(--muted); font-size: 11px; }
 .field-label { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; color: #dce6ff; font-size: 13px; font-weight: 600; }
-.field-label input[type='text'], .field-label select, .field-label textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.04); color: #eef2ff; }
+.field-label input[type='text'], .field-label input[type='password'], .field-label input[type='number'], .field-label select, .field-label textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.04); color: #eef2ff; }
 .field-label textarea { resize: vertical; }
 .two-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 18px; }
 .primary, .secondary { padding: 10px 15px; border-radius: 9px; font-weight: 700; cursor: pointer; }
@@ -338,5 +481,16 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .callout.error { border-color: rgba(255,100,100,.35); color: #ffaaaa; }
 .empty-state { padding: 24px; text-align: center; color: var(--muted); }
 .sticky-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(15,17,23,.95); backdrop-filter: blur(10px); }
-@media (max-width: 760px) { .settings-header { align-items: flex-start; flex-direction: column; } .header-actions { width: 100%; } .header-actions button { flex: 1; } .two-column { grid-template-columns: 1fr; } .settings-content { padding: 0 14px; } .callout { margin: 0 14px; } }
+.key-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: end; }
+.key-field { margin-bottom: 0; }
+.test-button { min-width: 92px; height: 38px; margin-bottom: 0; }
+.api-test-result { margin: 10px 0 14px; font-size: 13px; }
+.success-text { color: #78e3c1; }
+.error-text { color: #ffaaaa; }
+.limit-field { max-width: 360px; margin-top: 18px; }
+.safety-panel { padding: 14px; border: 1px solid rgba(61,214,183,.22); border-radius: 10px; background: rgba(61,214,183,.055); color: #dce6ff; }
+.safety-panel strong { display: block; margin-bottom: 6px; }
+.safety-panel p { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.safety-panel p + p { margin-top: 6px; }
+@media (max-width: 760px) { .settings-header { align-items: flex-start; flex-direction: column; } .header-actions { width: 100%; } .header-actions button { flex: 1; } .two-column, .key-row { grid-template-columns: 1fr; } .test-button { width: 100%; } .settings-content { padding: 0 14px; } .callout { margin: 0 14px; } }
 </style>
