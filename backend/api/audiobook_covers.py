@@ -8,11 +8,22 @@ import requests
 from fastapi import APIRouter, Query
 
 from ..config import logger, plex_headers, plex_session, settings
+from ..google_books_guard import (
+    GoogleBooksProviderError,
+    GoogleBooksRequestBlocked,
+    get_google_books_usage_status,
+    request_google_books,
+)
+from .audiobook_settings import load_audiobook_settings
 
 router = APIRouter()
 
-_CACHE_TTL_SECONDS = 60 * 60
-_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+# Combined provider results are cached in memory for a full day. Google Books
+# also has its own persistent seven-day cache in google_books_guard.py.
+_CACHE_TTL_SECONDS = 24 * 60 * 60
+_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_ASIN_CACHE_TTL_SECONDS = 24 * 60 * 60
+_ASIN_CACHE: Dict[str, Tuple[float, str]] = {}
 _ASIN_PATTERN = re.compile(r"(?<![A-Z0-9])([A-Z0-9]{10})(?![A-Z0-9])", re.IGNORECASE)
 
 
@@ -47,7 +58,11 @@ def _cover(
     }
 
 
-def _extract_asin(rating_key: str) -> str:
+def _extract_asin(rating_key: str, force_refresh: bool = False) -> str:
+    cached = _ASIN_CACHE.get(rating_key)
+    if cached and not force_refresh and time.time() - cached[0] < _ASIN_CACHE_TTL_SECONDS:
+        return cached[1]
+
     try:
         response = plex_session.get(
             f"{settings.PLEX_URL}/library/metadata/{rating_key}",
@@ -58,6 +73,7 @@ def _extract_asin(rating_key: str) -> str:
         root = ET.fromstring(response.text)
     except Exception as exc:
         logger.debug("[AUDIOBOOK_COVERS] Could not inspect Plex metadata for ASIN: %s", exc)
+        _ASIN_CACHE[rating_key] = (time.time(), "")
         return ""
 
     candidates: List[str] = []
@@ -67,32 +83,43 @@ def _extract_asin(rating_key: str) -> str:
             if value:
                 candidates.append(value)
 
+    asin = ""
     for candidate in candidates:
         lowered = candidate.lower()
         if "audible" not in lowered and "audnexus" not in lowered and "asin" not in lowered:
             continue
         match = _ASIN_PATTERN.search(candidate.upper())
         if match:
-            return match.group(1).upper()
-    return ""
+            asin = match.group(1).upper()
+            break
+
+    _ASIN_CACHE[rating_key] = (time.time(), asin)
+    return asin
 
 
-def _google_books(title: str, author: str) -> List[Dict[str, Any]]:
-    terms = [f'intitle:"{title}"']
-    if author:
-        terms.append(f'inauthor:"{author}"')
-    response = requests.get(
-        "https://www.googleapis.com/books/v1/volumes",
-        params={"q": " ".join(terms), "printType": "books", "maxResults": 12, "projection": "lite"},
-        timeout=15,
+def _google_books(title: str, author: str, force_refresh: bool) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    audiobook_settings = load_audiobook_settings()
+    payload, usage = request_google_books(
+        api_key=audiobook_settings.google_books_api_key,
+        title=title,
+        author=author,
+        configured_daily_limit=audiobook_settings.google_books_daily_limit,
+        max_results=8,
+        force_refresh=force_refresh,
+        use_cache=True,
     )
-    response.raise_for_status()
 
     covers: List[Dict[str, Any]] = []
-    for item in response.json().get("items", []):
+    for item in payload.get("items", []):
         info = item.get("volumeInfo") or {}
         links = info.get("imageLinks") or {}
-        url = links.get("extraLarge") or links.get("large") or links.get("medium") or links.get("small") or links.get("thumbnail")
+        url = (
+            links.get("extraLarge")
+            or links.get("large")
+            or links.get("medium")
+            or links.get("small")
+            or links.get("thumbnail")
+        )
         thumb = links.get("thumbnail") or links.get("smallThumbnail") or url
         cover = _cover(
             source="google",
@@ -104,7 +131,7 @@ def _google_books(title: str, author: str) -> List[Dict[str, Any]]:
         )
         if cover:
             covers.append(cover)
-    return covers
+    return covers, usage
 
 
 def _open_library(title: str, author: str) -> List[Dict[str, Any]]:
@@ -190,32 +217,55 @@ def api_audiobook_cover_options(
     audnexus: bool = Query(True),
     force_refresh: bool = Query(False),
 ):
+    # This endpoint is intentionally single-item only. It is not called by batch,
+    # webhook, scheduler, or library-scan workflows.
     provider_key = f"{rating_key}|{title}|{author}|{google}|{openlibrary}|{audnexus}"
     cached = _CACHE.get(provider_key)
     if cached and not force_refresh and time.time() - cached[0] < _CACHE_TTL_SECONDS:
-        return {"covers": cached[1], "asin": _extract_asin(rating_key), "cached": True}
+        response = dict(cached[1])
+        response["cached"] = True
+        return response
 
-    asin = _extract_asin(rating_key) if audnexus else ""
+    asin = _extract_asin(rating_key, force_refresh=force_refresh) if audnexus else ""
     covers: List[Dict[str, Any]] = []
     errors: Dict[str, str] = {}
+    audiobook_settings = load_audiobook_settings()
+    google_usage = get_google_books_usage_status(audiobook_settings.google_books_daily_limit)
 
-    providers = []
     if google:
-        providers.append(("google", lambda: _google_books(title, author)))
-    if openlibrary:
-        providers.append(("openlibrary", lambda: _open_library(title, author)))
-    if audnexus and asin:
-        providers.append(("audnexus", lambda: _audnexus(asin)))
-
-    for name, provider in providers:
         try:
-            covers.extend(provider())
+            google_covers, google_usage = _google_books(title, author, force_refresh)
+            covers.extend(google_covers)
+        except (GoogleBooksRequestBlocked, GoogleBooksProviderError) as exc:
+            logger.info("[AUDIOBOOK_COVERS] Google Books skipped: %s", exc)
+            errors["google"] = str(exc)
         except Exception as exc:
-            logger.warning("[AUDIOBOOK_COVERS] %s search failed: %s", name, exc)
-            errors[name] = str(exc)
+            logger.warning("[AUDIOBOOK_COVERS] Google Books search failed: %s", exc)
+            errors["google"] = "Google Books search failed."
+
+    if openlibrary:
+        try:
+            covers.extend(_open_library(title, author))
+        except Exception as exc:
+            logger.warning("[AUDIOBOOK_COVERS] Open Library search failed: %s", exc)
+            errors["openlibrary"] = "Open Library search failed."
+
+    if audnexus and asin:
+        try:
+            covers.extend(_audnexus(asin))
+        except Exception as exc:
+            logger.warning("[AUDIOBOOK_COVERS] Audnexus lookup failed: %s", exc)
+            errors["audnexus"] = "Audnexus lookup failed."
 
     source_order = {"audnexus": 0, "google": 1, "openlibrary": 2}
     covers = _dedupe(covers)
     covers.sort(key=lambda item: source_order.get(item.get("source", ""), 99))
-    _CACHE[provider_key] = (time.time(), covers)
-    return {"covers": covers, "asin": asin or None, "errors": errors, "cached": False}
+    response = {
+        "covers": covers,
+        "asin": asin or None,
+        "errors": errors,
+        "cached": False,
+        "google_usage": google_usage,
+    }
+    _CACHE[provider_key] = (time.time(), response)
+    return response
