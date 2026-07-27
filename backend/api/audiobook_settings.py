@@ -100,6 +100,12 @@ def save_audiobook_settings(payload: AudiobookSettings) -> AudiobookSettings:
             encoding="utf-8",
         )
         temporary_path.replace(_SETTINGS_PATH)
+        # The persisted JSON now contains an API key. Restrict it to the account
+        # running SimPoster wherever the host filesystem supports POSIX modes.
+        try:
+            _SETTINGS_PATH.chmod(0o600)
+        except OSError as exc:
+            logger.warning("[AUDIOBOOK_SETTINGS] Could not restrict settings permissions: %s", exc)
         _apply_runtime_google_key(payload)
         return payload
     except Exception as exc:
