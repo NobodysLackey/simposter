@@ -1,13 +1,12 @@
 from typing import Any, Dict, Optional
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from .universal import (
     _add_grain,
     _add_vignette,
     _hex_to_rgb,
     _render_text_overlay,
-    _resize_cover,
     _solid_color_logo,
     apply_overlay_config,
 )
@@ -19,6 +18,72 @@ def _aligned_axis(anchor: int, item_size: int, alignment: str) -> int:
     if alignment in {"right", "bottom"}:
         return anchor - item_size
     return anchor - item_size // 2
+
+
+def _progressive_resize(image: Image.Image, width: int, height: int) -> Image.Image:
+    """Upscale in bounded steps, then apply restrained output sharpening."""
+    source_w, source_h = image.size
+    resized = image
+
+    # Large one-step enlargements can look especially soft. Two-times steps do not
+    # invent detail, but they preserve edges more gracefully before the final pass.
+    while resized.width * 2 < width and resized.height * 2 < height:
+        resized = resized.resize(
+            (resized.width * 2, resized.height * 2),
+            Image.Resampling.LANCZOS,
+        )
+
+    if resized.size != (width, height):
+        resized = resized.resize((width, height), Image.Resampling.LANCZOS)
+
+    upscale_factor = max(width / max(source_w, 1), height / max(source_h, 1))
+    if upscale_factor >= 1.25:
+        resized = resized.filter(
+            ImageFilter.UnsharpMask(radius=1.2, percent=85, threshold=4)
+        )
+
+    return resized
+
+
+def _resize_cover_with_vertical_pan(
+    image: Image.Image,
+    target_size: int,
+    zoom: float = 1.0,
+    shift_y: float = 0.0,
+) -> Image.Image:
+    """Fill a square while retaining vertical overflow until the final crop.
+
+    The previous renderer center-cropped first and then shifted the already-square
+    image, permanently discarding the portrait artwork and exposing black gaps.
+    This implementation resizes the complete source, pans within its real overflow,
+    and performs the square crop only at the end.
+    """
+    image = image.convert("RGBA")
+    source_w, source_h = image.size
+    if source_w <= 0 or source_h <= 0:
+        return image.resize((target_size, target_size), Image.Resampling.LANCZOS)
+
+    safe_zoom = max(float(zoom), 0.01)
+    safe_shift_y = max(-0.5, min(float(shift_y), 0.5))
+
+    # Cover semantics: both resized axes remain at least as large as the canvas.
+    scale = max(target_size / source_w, target_size / source_h) * safe_zoom
+    resized_w = max(target_size, int(round(source_w * scale)))
+    resized_h = max(target_size, int(round(source_h * scale)))
+    resized = _progressive_resize(image, resized_w, resized_h)
+
+    overflow_x = max(0, resized_w - target_size)
+    overflow_y = max(0, resized_h - target_size)
+    crop_x = overflow_x // 2
+
+    # 0 is centered. Positive shift reveals more of the top; negative shift reveals
+    # more of the bottom, matching the existing control's visual direction.
+    crop_y = int(round((overflow_y / 2) - (safe_shift_y * overflow_y)))
+    crop_y = max(0, min(crop_y, overflow_y))
+
+    return resized.crop(
+        (crop_x, crop_y, crop_x + target_size, crop_y + target_size)
+    )
 
 
 def render_audiobook_cover(
@@ -41,10 +106,12 @@ def render_audiobook_cover(
     vignette_strength = max(0.0, min(float(options.get("vignette_strength", 0.0)), 1.0))
     grain_amount = max(0.0, min(float(options.get("grain_amount", 0.0)), 0.6))
 
-    canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 255))
-    cover = _resize_cover(background, canvas_size, canvas_size, zoom=poster_zoom)
-    shift_px = int(poster_shift_y * canvas_size)
-    canvas.paste(cover, (0, shift_px))
+    canvas = _resize_cover_with_vertical_pan(
+        background,
+        canvas_size,
+        zoom=poster_zoom,
+        shift_y=poster_shift_y,
+    )
 
     matte_h = int(canvas_size * matte_height_ratio)
     fade_h = int(canvas_size * fade_height_ratio)
@@ -75,7 +142,7 @@ def render_audiobook_cover(
     if logo is not None and logo_mode != "none":
         logo = logo.convert("RGBA")
         if logo_mode == "match":
-            color = background.resize((1, 1), Image.LANCZOS).getpixel((0, 0))[:3]
+            color = background.resize((1, 1), Image.Resampling.LANCZOS).getpixel((0, 0))[:3]
             logo = _solid_color_logo(logo, color)
         elif logo_mode == "hex":
             logo = _solid_color_logo(logo, _hex_to_rgb(str(options.get("logo_hex", "#FFFFFF"))))
@@ -86,7 +153,7 @@ def render_audiobook_cover(
         scale = min(max_w / max(logo.width, 1), max_h / max(logo.height, 1)) * logo_scale
         logo = logo.resize(
             (max(1, int(logo.width * scale)), max(1, int(logo.height * scale))),
-            Image.LANCZOS,
+            Image.Resampling.LANCZOS,
         )
 
         cx = int(canvas_size * float(options.get("uniform_logo_offset_x", 0.5)))
