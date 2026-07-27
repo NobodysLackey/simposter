@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import type { TabKey } from '../../stores/ui'
 
 export type SubMenuItem = {
@@ -36,12 +37,26 @@ const emit = defineEmits<{
   (e: 'toggleCollapse'): void
 }>()
 
-const activeKey = computed(() => props.active)
+const router = useRouter()
+
+const activeKey = computed<TabKey>(() =>
+  props.active === 'audiobook-settings' ? 'audiobooks' : props.active,
+)
+
+const activeSubmenuKey = computed(() =>
+  props.active === 'audiobook-settings'
+    ? 'audiobook-settings'
+    : props.activeSubmenu,
+)
 
 const displayTabs = computed<MenuItem[]>(() => {
   if (props.tabs.some((tab) => tab.key === 'audiobooks')) return props.tabs
 
-  const audiobookTab: MenuItem = { key: 'audiobooks', label: '🎧 Audiobooks' }
+  const audiobookTab: MenuItem = {
+    key: 'audiobooks',
+    label: '🎧 Audiobooks',
+    submenu: [{ key: 'audiobook-settings', label: '⚙️ Settings' }],
+  }
   const insertionIndex = props.tabs.findIndex((tab) => tab.key === 'template-manager')
 
   if (insertionIndex < 0) return [...props.tabs, audiobookTab]
@@ -54,6 +69,14 @@ const displayTabs = computed<MenuItem[]>(() => {
 
 const handleTabClick = (tab: MenuItem) => {
   emit('select', tab.key)
+}
+
+const handleSubmenuClick = (parentKey: TabKey, submenuKey: string) => {
+  if (parentKey === 'audiobooks' && submenuKey === 'audiobook-settings') {
+    void router.push({ name: 'audiobook-settings' })
+    return
+  }
+  emit('submenuClick', parentKey, submenuKey)
 }
 
 const getIcon = (label: string) => {
@@ -107,8 +130,8 @@ const getTextLabel = (label: string) =>
           <button
             v-for="item in tab.submenu"
             :key="item.key"
-            :class="['submenu-btn', { active: item.key === props.activeSubmenu }]"
-            @click="emit('submenuClick', tab.key, item.key)"
+            :class="['submenu-btn', { active: item.key === activeSubmenuKey }]"
+            @click="handleSubmenuClick(tab.key, item.key)"
           >
             {{ item.label }}
           </button>
