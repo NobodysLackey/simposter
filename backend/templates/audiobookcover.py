@@ -53,10 +53,9 @@ def _resize_cover_with_vertical_pan(
 ) -> Image.Image:
     """Fill a square while retaining vertical overflow until the final crop.
 
-    The previous renderer center-cropped first and then shifted the already-square
-    image, permanently discarding the portrait artwork and exposing black gaps.
-    This implementation resizes the complete source, pans within its real overflow,
-    and performs the square crop only at the end.
+    ``shift_y`` uses a true -1.0 to +1.0 range. Positive values reveal the top of
+    the source and negative values reveal the bottom. The endpoints map exactly to
+    the first and last available source pixels, so the full portrait can be reached.
     """
     image = image.convert("RGBA")
     source_w, source_h = image.size
@@ -64,7 +63,7 @@ def _resize_cover_with_vertical_pan(
         return image.resize((target_size, target_size), Image.Resampling.LANCZOS)
 
     safe_zoom = max(float(zoom), 0.01)
-    safe_shift_y = max(-0.5, min(float(shift_y), 0.5))
+    safe_shift_y = max(-1.0, min(float(shift_y), 1.0))
 
     # Cover semantics: both resized axes remain at least as large as the canvas.
     scale = max(target_size / source_w, target_size / source_h) * safe_zoom
@@ -76,9 +75,8 @@ def _resize_cover_with_vertical_pan(
     overflow_y = max(0, resized_h - target_size)
     crop_x = overflow_x // 2
 
-    # 0 is centered. Positive shift reveals more of the top; negative shift reveals
-    # more of the bottom, matching the existing control's visual direction.
-    crop_y = int(round((overflow_y / 2) - (safe_shift_y * overflow_y)))
+    # +1.0 = very top, 0 = centered, -1.0 = very bottom.
+    crop_y = int(round(((1.0 - safe_shift_y) / 2.0) * overflow_y))
     crop_y = max(0, min(crop_y, overflow_y))
 
     return resized.crop(
@@ -100,7 +98,7 @@ def render_audiobook_cover(
     canvas_size = max(500, min(canvas_size, 4000))
 
     poster_zoom = max(float(options.get("poster_zoom", 1.0)), 0.1)
-    poster_shift_y = max(-0.5, min(float(options.get("poster_shift_y", 0.0)), 0.5))
+    poster_shift_y = max(-1.0, min(float(options.get("poster_shift_y", 0.0)), 1.0))
     matte_height_ratio = max(0.0, min(float(options.get("matte_height_ratio", 0.0)), 0.5))
     fade_height_ratio = max(0.0, min(float(options.get("fade_height_ratio", 0.0)), 1.0))
     vignette_strength = max(0.0, min(float(options.get("vignette_strength", 0.0)), 1.0))
