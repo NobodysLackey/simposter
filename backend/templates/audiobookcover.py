@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional
 
 from PIL import Image, ImageDraw, ImageFilter
 
+from .logo_geometry import trim_transparent_logo
 from .universal import (
     _add_grain,
     _add_vignette,
@@ -25,8 +26,6 @@ def _progressive_resize(image: Image.Image, width: int, height: int) -> Image.Im
     source_w, source_h = image.size
     resized = image
 
-    # Large one-step enlargements can look especially soft. Two-times steps do not
-    # invent detail, but they preserve edges more gracefully before the final pass.
     while resized.width * 2 < width and resized.height * 2 < height:
         resized = resized.resize(
             (resized.width * 2, resized.height * 2),
@@ -51,12 +50,7 @@ def _resize_cover_with_vertical_pan(
     zoom: float = 1.0,
     shift_y: float = 0.0,
 ) -> Image.Image:
-    """Fill a square while retaining vertical overflow until the final crop.
-
-    ``shift_y`` uses a true -1.0 to +1.0 range. Positive values reveal the top of
-    the source and negative values reveal the bottom. The endpoints map exactly to
-    the first and last available source pixels, so the full portrait can be reached.
-    """
+    """Fill a square while retaining vertical overflow until the final crop."""
     image = image.convert("RGBA")
     source_w, source_h = image.size
     if source_w <= 0 or source_h <= 0:
@@ -65,7 +59,6 @@ def _resize_cover_with_vertical_pan(
     safe_zoom = max(float(zoom), 0.01)
     safe_shift_y = max(-1.0, min(float(shift_y), 1.0))
 
-    # Cover semantics: both resized axes remain at least as large as the canvas.
     scale = max(target_size / source_w, target_size / source_h) * safe_zoom
     resized_w = max(target_size, int(round(source_w * scale)))
     resized_h = max(target_size, int(round(source_h * scale)))
@@ -74,8 +67,6 @@ def _resize_cover_with_vertical_pan(
     overflow_x = max(0, resized_w - target_size)
     overflow_y = max(0, resized_h - target_size)
     crop_x = overflow_x // 2
-
-    # +1.0 = very top, 0 = centered, -1.0 = very bottom.
     crop_y = int(round(((1.0 - safe_shift_y) / 2.0) * overflow_y))
     crop_y = max(0, min(crop_y, overflow_y))
 
@@ -138,7 +129,7 @@ def render_audiobook_cover(
 
     logo_mode = str(options.get("logo_mode", "stock") or "stock")
     if logo is not None and logo_mode != "none":
-        logo = logo.convert("RGBA")
+        logo = trim_transparent_logo(logo)
         if logo_mode == "match":
             color = background.resize((1, 1), Image.Resampling.LANCZOS).getpixel((0, 0))[:3]
             logo = _solid_color_logo(logo, color)
