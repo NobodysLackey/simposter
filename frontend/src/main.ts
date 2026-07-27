@@ -1,4 +1,5 @@
 import './assets/main.css'
+import './services/audiobookCoverQuality'
 
 import { createApp } from 'vue'
 import App from './App.vue'
