@@ -16,6 +16,7 @@ GOOGLE_BOOKS_HARD_DAILY_CAP = 50
 GOOGLE_BOOKS_DEFAULT_DAILY_LIMIT = 25
 GOOGLE_BOOKS_MIN_INTERVAL_SECONDS = 5
 GOOGLE_BOOKS_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+GOOGLE_BOOKS_CACHE_VERSION = "full-images-v2"
 
 _USAGE_PATH = Path(settings.SETTINGS_DIR) / "google_books_usage.json"
 _CACHE_PATH = Path(settings.SETTINGS_DIR) / "google_books_cache.json"
@@ -121,7 +122,12 @@ def _reserve_request(configured_limit: int) -> Dict[str, Any]:
 
 def _cache_key(title: str, author: str, max_results: int) -> str:
     normalized = "|".join(
-        [title.strip().casefold(), author.strip().casefold(), str(int(max_results))]
+        [
+            GOOGLE_BOOKS_CACHE_VERSION,
+            title.strip().casefold(),
+            author.strip().casefold(),
+            str(int(max_results)),
+        ]
     )
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
@@ -202,7 +208,6 @@ def request_google_books(
                 "q": " ".join(terms),
                 "printType": "books",
                 "maxResults": capped_results,
-                "projection": "lite",
                 "key": key,
             },
             timeout=15,
