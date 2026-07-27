@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from ..config import logger, plex_headers, plex_session, settings
 from ..rendering import render_poster_image
+from .audiobook_settings import load_audiobook_settings
 
 router = APIRouter()
 
@@ -26,9 +27,11 @@ class AudiobookRenderRequest(BaseModel):
     series_number: str = ""
     year: Optional[int] = None
     background_url: str
+    logo_url: Optional[str] = None
     options: Dict[str, Any] = Field(default_factory=dict)
     save_to_disk: bool = False
     send_to_plex: bool = False
+    save_beside_media: Optional[bool] = None
     output_directory: Optional[str] = None
     filename: str = "cover.jpg"
 
@@ -109,7 +112,7 @@ def _image_settings() -> tuple[str, int, str]:
         return ".jpg", 95, "JPEG"
 
 
-def _save_image(image, output_path: Path) -> None:
+def _save_image(image, output_path: Path) -> Path:
     extension, quality, pil_format = _image_settings()
     output_path = output_path.with_suffix(extension)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,6 +123,7 @@ def _save_image(image, output_path: Path) -> None:
         image.convert("RGB").save(output_path, "WEBP", quality=quality)
     else:
         image.convert("RGB").save(output_path, "JPEG", quality=quality)
+    return output_path
 
 
 def _album_media_directory(rating_key: str) -> Optional[Path]:
@@ -135,14 +139,36 @@ def _album_media_directory(rating_key: str) -> Optional[Path]:
     return None
 
 
-def _fallback_output_directory(req: AudiobookRenderRequest) -> Path:
-    if req.output_directory:
-        return Path(req.output_directory)
+def _safe_component(value: str, fallback: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9 _().'-]", "", value or fallback).strip()
+    return cleaned or fallback
 
-    safe_author = re.sub(r"[^A-Za-z0-9 _().'-]", "", req.author or "Unknown Author").strip()
-    safe_title = re.sub(r"[^A-Za-z0-9 _().'-]", "", req.title or "Unknown Title").strip()
-    library = re.sub(r"[^A-Za-z0-9 _().'-]", "", req.library_id or "Audiobooks").strip()
-    return Path(settings.CONFIG_DIR) / "output" / library / safe_author / safe_title
+
+def _fallback_output_directory(req: AudiobookRenderRequest) -> Path:
+    audiobook_settings = load_audiobook_settings()
+    template = req.output_directory or audiobook_settings.fallback_save_path
+
+    replacements = {
+        "{library}": _safe_component(req.library_id or "Audiobooks", "Audiobooks"),
+        "{author}": _safe_component(req.author, "Unknown Author"),
+        "{title}": _safe_component(req.title, "Unknown Title"),
+        "{year}": str(req.year or ""),
+        "{key}": _safe_component(req.rating_key, "unknown"),
+    }
+    rendered = template
+    for variable, value in replacements.items():
+        rendered = rendered.replace(variable, value)
+
+    path = Path(rendered).expanduser()
+    if not path.is_absolute():
+        path = Path(settings.CONFIG_DIR) / path
+    return path
+
+
+def _save_beside_media(req: AudiobookRenderRequest) -> bool:
+    if req.save_beside_media is not None:
+        return req.save_beside_media
+    return load_audiobook_settings().save_beside_media
 
 
 @router.get("/audiobook-libraries")
@@ -217,7 +243,7 @@ def api_audiobook_preview(req: AudiobookRenderRequest):
     image = render_poster_image(
         "audiobookcover",
         req.background_url,
-        None,
+        req.logo_url or None,
         _render_options(req),
     )
     buffer = BytesIO()
@@ -237,26 +263,25 @@ def api_audiobook_save(req: AudiobookRenderRequest):
     image = render_poster_image(
         "audiobookcover",
         req.background_url,
-        None,
+        req.logo_url or None,
         _render_options(req),
     )
 
     result: Dict[str, Any] = {"status": "ok", "saved_path": None, "sent_to_plex": False}
 
     if req.save_to_disk:
-        album_dir = _album_media_directory(req.rating_key)
+        use_media_directory = _save_beside_media(req)
+        album_dir = _album_media_directory(req.rating_key) if use_media_directory else None
         used_fallback = album_dir is None
         target_dir = album_dir or _fallback_output_directory(req)
         requested_name = Path(req.filename or "cover.jpg").stem or "cover"
-        extension, _, _ = _image_settings()
-        output_path = target_dir / f"{requested_name}{extension}"
-        _save_image(image, output_path)
+        output_path = _save_image(image, target_dir / requested_name)
         result["saved_path"] = str(output_path)
         result["used_fallback_path"] = used_fallback
-        if used_fallback:
+        if use_media_directory and used_fallback:
             result["warning"] = (
                 "Plex's audiobook folder is not mounted inside the SimPoster container; "
-                "the cover was saved under SimPoster's output directory instead."
+                "the cover was saved to the configured fallback location instead."
             )
 
     if req.send_to_plex:
