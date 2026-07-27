@@ -1,5 +1,7 @@
 import './assets/main.css'
+import './assets/synthwave.css'
 import './services/audiobookCoverQuality'
+import './services/synthwaveTheme'
 
 import { createApp } from 'vue'
 import App from './App.vue'
