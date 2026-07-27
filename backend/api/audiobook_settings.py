@@ -26,11 +26,13 @@ class AudiobookSettings(BaseModel):
     default_preset_id: str = "default"
     save_beside_media: bool = True
     fallback_save_path: str = "/config/output/{library}/{author}/{title}"
-    default_text_enabled: bool = True
+    default_text_enabled: bool = False
     default_text: str = "{title}\n{author}"
     default_logo_mode: Literal["original", "match", "hex", "none"] = "none"
-    default_grain: int = Field(default=0, ge=0, le=60)
-    default_vignette: int = Field(default=20, ge=0, le=100)
+    default_matte: int = Field(default=0, ge=0, le=50)
+    default_fade: int = Field(default=15, ge=0, le=100)
+    default_grain: int = Field(default=15, ge=0, le=60)
+    default_vignette: int = Field(default=15, ge=0, le=100)
 
 
 def default_audiobook_settings() -> AudiobookSettings:
