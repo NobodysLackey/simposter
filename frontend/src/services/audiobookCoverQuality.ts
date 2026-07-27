@@ -2,6 +2,7 @@ type CoverQuality = 'low' | 'medium' | 'high'
 
 const STYLE_ID = 'simposter-audiobook-cover-quality-styles'
 const BOUND_ATTRIBUTE = 'data-cover-quality-bound'
+const EDITOR_DEFAULTS_ATTRIBUTE = 'data-audiobook-editor-defaults-applied'
 
 function classifyResolution(width: number, height: number): CoverQuality {
   const limitingDimension = Math.min(width, height)
@@ -80,16 +81,70 @@ function scanCoverImages(root: ParentNode = document): void {
   root.querySelectorAll<HTMLImageElement>('.cover-thumb img').forEach(decorateImage)
 }
 
-function startCoverQualityObserver(): void {
+function setAccordionDefault(
+  editor: Element,
+  sectionName: string,
+  shouldBeOpen: boolean,
+): void {
+  const sections = editor.querySelectorAll<HTMLElement>('.acc-section')
+  sections.forEach((section) => {
+    const header = section.querySelector<HTMLButtonElement>('.acc-header')
+    if (!header) return
+
+    const label = header.textContent?.replace(/\s+/g, ' ').trim() || ''
+    if (!label.startsWith(sectionName)) return
+
+    const isOpen = header.querySelector('.chevron')?.classList.contains('open') ?? false
+    if (isOpen !== shouldBeOpen) header.click()
+  })
+}
+
+function configureShiftRange(editor: Element): void {
+  editor.querySelectorAll<HTMLElement>('.slider').forEach((slider) => {
+    const label = slider.querySelector('label')?.textContent?.trim()
+    if (label !== 'Cover Shift Y %') return
+
+    slider.querySelectorAll<HTMLInputElement>('input').forEach((input) => {
+      input.min = '-100'
+      input.max = '100'
+    })
+  })
+}
+
+function configureAudiobookEditor(root: ParentNode = document): void {
+  root.querySelectorAll<HTMLElement>('.editor-shell').forEach((editor) => {
+    const kicker = editor.querySelector('.kicker')?.textContent?.trim()
+    if (kicker !== 'Editing Audiobook') return
+
+    configureShiftRange(editor)
+
+    if (editor.getAttribute(EDITOR_DEFAULTS_ATTRIBUTE) === 'true') return
+    editor.setAttribute(EDITOR_DEFAULTS_ATTRIBUTE, 'true')
+
+    // Apply only once per editor instance so later user toggles remain untouched.
+    requestAnimationFrame(() => {
+      setAccordionDefault(editor, 'Book Metadata', true)
+      setAccordionDefault(editor, 'Logo', false)
+      configureShiftRange(editor)
+    })
+  })
+}
+
+function scan(root: ParentNode = document): void {
+  scanCoverImages(root)
+  configureAudiobookEditor(root)
+}
+
+function startAudiobookUiObserver(): void {
   installStyles()
-  scanCoverImages()
+  scan()
 
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       mutation.addedNodes.forEach((node) => {
         if (!(node instanceof Element)) return
         if (node.matches('.cover-thumb img')) decorateImage(node as HTMLImageElement)
-        scanCoverImages(node)
+        scan(node)
       })
     })
   })
@@ -99,8 +154,8 @@ function startCoverQualityObserver(): void {
 
 if (typeof window !== 'undefined') {
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startCoverQualityObserver, { once: true })
+    document.addEventListener('DOMContentLoaded', startAudiobookUiObserver, { once: true })
   } else {
-    startCoverQualityObserver()
+    startAudiobookUiObserver()
   }
 }
