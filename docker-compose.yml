@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  simposter:
+    build: .
+    container_name: simposter
+
+    ports:
+      - "8003:8003"
+
+    environment:
+      # Persist settings, output, and logs
+      - CONFIG_DIR=/config
+      # - LOG_DIR=/config/logs
+
+    volumes:
+      # Simposter configuration
+      - ./config:/config
+
+      # External Volume III drive
+      - "/Volumes/Volume III:/volume3"
+
+    restart: unless-stopped

@@ -1,0 +1,144 @@
+import { ref } from 'vue'
+import { useSettingsStore } from '@/stores/settings'
+import type { MovieInput, PresetOptions } from './types'
+import { getApiBase } from './apiBase'
+
+const apiBase = getApiBase()
+
+export function useRenderService() {
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  const lastPreview = ref<string | null>(null)
+  const settings = useSettingsStore()
+
+  const post = async (path: string, body: unknown) => {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await fetch(`${apiBase}/api/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(`API ${path} failed (${res.status}): ${text || res.statusText}`)
+      }
+      return await res.json()
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : `Request to ${path} failed`
+      error.value = message
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const basePayload = (
+    movie: MovieInput,
+    bgUrl: string,
+    logoUrl?: string | null,
+    templateId?: string,
+    presetId?: string,
+    options?: PresetOptions
+  ) => ({
+    template_id: templateId || 'uniformlogo',
+    preset_id: presetId || 'uniformlogo',
+    background_url: bgUrl,
+    logo_url: logoUrl || null,
+    movie_title: movie.title,
+    movie_year: movie.year ?? null,
+    options: options ?? undefined
+  })
+
+  const preview = async (
+    movie: MovieInput,
+    bgUrl: string,
+    logoUrl?: string | null,
+    options?: PresetOptions,
+    templateId?: string,
+    presetId?: string,
+    disableCache?: boolean,
+    skipLastPreviewUpdate?: boolean
+  ) => {
+    const payload = basePayload(movie, bgUrl, logoUrl, templateId, presetId, options)
+    // Always disable overlay cache for live preview — the cache bakes in matte/fade/vignette
+    // at save time, so a cached overlay would ignore slider changes in the manual editor.
+    // The cache is a batch-render optimization and should not affect interactive previews.
+    const disableOverlayCache = true
+    const data = await post('preview', {
+      ...payload,
+      // Include rating_key so backend can fetch media info for overlay badges
+      rating_key: movie.key,
+      // Only disable when explicitly requested
+      disableOverlayCache,
+      // Manual editor always renders the selected preset as-is, never falls back to another preset
+      skip_fallback: true
+    })
+    if (data?.image_base64 && !skipLastPreviewUpdate) {
+      lastPreview.value = `data:image/jpeg;base64,${data.image_base64}`
+    }
+    return data
+  }
+
+  const save = async (
+    movie: MovieInput,
+    bgUrl: string,
+    logoUrl?: string | null,
+    options?: PresetOptions,
+    templateId?: string,
+    presetId?: string,
+    libraryId?: string | null,
+    seasonIndex?: number | null
+  ) => {
+    const payload = {
+      ...basePayload(movie, bgUrl, logoUrl, templateId, presetId, options),
+      movie_title: movie.title,
+      movie_year: movie.year ?? null,
+      filename: 'poster.jpg',
+      library_id: libraryId ?? null,
+      is_tv: movie.mediaType === 'tv-show',
+      season_index: seasonIndex ?? null,
+      rating_key: movie.key
+    }
+    return post('save', payload)
+  }
+
+  const send = async (
+    movie: MovieInput,
+    bgUrl: string,
+    logoUrl?: string | null,
+    options?: PresetOptions,
+    labels?: string[],
+    templateId?: string,
+    presetId?: string,
+    sendLogo?: boolean
+  ) => {
+    const payload: Record<string, unknown> = {
+      ...basePayload(movie, bgUrl, logoUrl, templateId, presetId, options),
+      rating_key: movie.key,
+      send_to_plex: true,
+      library_id: movie.library_id ?? null
+    }
+    if (labels?.length) {
+      payload.labels = labels
+    }
+    const result = await post('plex/send', payload)
+    if (result && sendLogo && logoUrl) {
+      try {
+        await fetch(`${apiBase}/api/plex/send-logo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rating_key: movie.key,
+            logo_url: logoUrl,
+            is_tv: (movie as any).mediaType === 'tv-show',
+          })
+        })
+      } catch { /* non-fatal */ }
+    }
+    return result
+  }
+
+  return { loading, error, lastPreview, preview, save, send }
+}
