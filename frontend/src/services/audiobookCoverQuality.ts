@@ -111,23 +111,28 @@ function configureShiftRange(editor: Element): void {
   })
 }
 
-function configureAudiobookEditor(root: ParentNode = document): void {
-  root.querySelectorAll<HTMLElement>('.editor-shell').forEach((editor) => {
-    const kicker = editor.querySelector('.kicker')?.textContent?.trim()
-    if (kicker !== 'Editing Audiobook') return
+function configureEditorElement(editor: Element): void {
+  const kicker = editor.querySelector('.kicker')?.textContent?.trim()
+  if (kicker !== 'Editing Audiobook') return
 
+  configureShiftRange(editor)
+
+  if (editor.getAttribute(EDITOR_DEFAULTS_ATTRIBUTE) === 'true') return
+  editor.setAttribute(EDITOR_DEFAULTS_ATTRIBUTE, 'true')
+
+  // Apply only once per editor instance so later user toggles remain untouched.
+  requestAnimationFrame(() => {
+    setAccordionDefault(editor, 'Book Metadata', true)
+    setAccordionDefault(editor, 'Logo', false)
     configureShiftRange(editor)
-
-    if (editor.getAttribute(EDITOR_DEFAULTS_ATTRIBUTE) === 'true') return
-    editor.setAttribute(EDITOR_DEFAULTS_ATTRIBUTE, 'true')
-
-    // Apply only once per editor instance so later user toggles remain untouched.
-    requestAnimationFrame(() => {
-      setAccordionDefault(editor, 'Book Metadata', true)
-      setAccordionDefault(editor, 'Logo', false)
-      configureShiftRange(editor)
-    })
   })
+}
+
+function configureAudiobookEditor(root: ParentNode = document): void {
+  if (root instanceof Element && root.matches('.editor-shell')) {
+    configureEditorElement(root)
+  }
+  root.querySelectorAll<HTMLElement>('.editor-shell').forEach(configureEditorElement)
 }
 
 function scan(root: ParentNode = document): void {
