@@ -247,7 +247,9 @@ const applyPresetOptions = (presetOptions?: Record<string, any>) => {
     if (typeof value.uniform_logo_offset_y === 'number') options.value.uniformLogoOffsetY = Math.round(value.uniform_logo_offset_y * 100)
     if (['left', 'center', 'right'].includes(value.uniform_logo_h_align)) options.value.uniformLogoHAlign = value.uniform_logo_h_align
     if (['top', 'center', 'bottom'].includes(value.uniform_logo_v_align)) options.value.uniformLogoVAlign = value.uniform_logo_v_align
-    if (typeof value.logo_mode === 'string' && ['original', 'match', 'hex', 'none'].includes(value.logo_mode)) logoMode.value = value.logo_mode
+    if (typeof value.logo_mode === 'string' && ['original', 'match', 'hex', 'none'].includes(value.logo_mode)) {
+      logoMode.value = value.logo_mode as 'original' | 'match' | 'hex' | 'none'
+    }
     if (typeof value.logo_hex === 'string') logoHex.value = value.logo_hex
     if (typeof value.border_enabled === 'boolean') options.value.borderEnabled = value.border_enabled
     if (typeof value.border_px === 'number') options.value.borderThickness = value.border_px
