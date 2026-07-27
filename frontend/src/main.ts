@@ -4,6 +4,7 @@ import './services/audiobookCoverQuality'
 import './services/audiobookCoverDiscovery'
 import './services/audiobookSecondaryCovers'
 import './services/manualLogoUpload'
+import './services/logoPlacementUx'
 import './services/sidebarLibraryRescan'
 import './services/synthwaveTheme'
 
