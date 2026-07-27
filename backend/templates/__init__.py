@@ -1,16 +1,20 @@
 # backend/templates/__init__.py
 from .uniformlogo import render_uniform_logo
+from .audiobookcover import render_audiobook_cover
 
 # Simple registry so we can grow later if needed
 # Map template IDs → renderer functions
 TEMPLATES = {
-    "uniformlogo": render_uniform_logo
+    "uniformlogo": render_uniform_logo,
+    "audiobookcover": render_audiobook_cover,
 }
+
 
 def get_renderer(template_id: str):
     if template_id not in TEMPLATES:
         raise ValueError(f"Unknown template '{template_id}'")
     return TEMPLATES[template_id]
+
 
 def list_templates():
     """
@@ -24,6 +28,7 @@ def list_templates():
                 "label": "Basic",
                 "templates": [
                     {"id": "uniformlogo", "name": "Uniform Logo"},
+                    {"id": "audiobookcover", "name": "Audiobook Cover"},
                 ],
             }
         ]
