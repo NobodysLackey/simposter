@@ -2,7 +2,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
+from urllib.parse import quote_plus
 
 import requests
 from fastapi import APIRouter, Query
@@ -32,28 +32,6 @@ def _https(url: Optional[str]) -> str:
     if value.startswith("http://"):
         return "https://" + value[7:]
     return value
-
-
-def _upgrade_google_image_url(url: Optional[str]) -> str:
-    """Request the largest practical Google Books cover variant.
-
-    Google often returns a thumbnail content URL even when the underlying scan is
-    larger. These query changes do not consume an additional Books API request;
-    they only ask the image host for a larger rendition when one exists.
-    """
-    normalized = _https(url)
-    if not normalized:
-        return ""
-
-    parsed = urlparse(normalized)
-    if "google" not in parsed.netloc:
-        return normalized
-
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query["zoom"] = "3"
-    query["w"] = "1600"
-    query.pop("edge", None)
-    return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
 def _cover(
@@ -135,17 +113,23 @@ def _google_books(title: str, author: str, force_refresh: bool) -> Tuple[List[Di
     for item in payload.get("items", []):
         info = item.get("volumeInfo") or {}
         links = info.get("imageLinks") or {}
+
+        # Use Google's advertised image URLs exactly as returned. Forcing unsupported
+        # zoom/width parameters can make the image host return an "Image not available"
+        # graphic even when the original cover URL is valid.
         url = (
-            _upgrade_google_image_url(links.get("extraLarge"))
-            or _upgrade_google_image_url(links.get("large"))
-            or _upgrade_google_image_url(links.get("medium"))
-            or _upgrade_google_image_url(links.get("small"))
-            or _upgrade_google_image_url(links.get("thumbnail"))
-            or _upgrade_google_image_url(links.get("smallThumbnail"))
+            links.get("extraLarge")
+            or links.get("large")
+            or links.get("medium")
+            or links.get("small")
+            or links.get("thumbnail")
+            or links.get("smallThumbnail")
         )
         cover = _cover(
             source="google",
             url=url,
+            # Load the selected full rendition in the picker so the quality marker
+            # measures the image SimPoster will actually render.
             thumb=url,
             title=str(info.get("title") or ""),
             author=", ".join(info.get("authors") or []),
