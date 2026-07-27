@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import List, Literal
 
@@ -6,6 +7,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..config import logger, settings
+from ..google_books_guard import (
+    GOOGLE_BOOKS_DEFAULT_DAILY_LIMIT,
+    GOOGLE_BOOKS_HARD_DAILY_CAP,
+    GoogleBooksProviderError,
+    GoogleBooksRequestBlocked,
+    get_google_books_usage_status,
+    test_google_books_api_key,
+)
 
 router = APIRouter()
 
@@ -33,10 +42,35 @@ class AudiobookSettings(BaseModel):
     default_fade: int = Field(default=15, ge=0, le=100)
     default_grain: int = Field(default=15, ge=0, le=60)
     default_vignette: int = Field(default=15, ge=0, le=100)
+    google_books_api_key: str = Field(
+        default_factory=lambda: os.getenv("GOOGLE_BOOKS_API_KEY", "")
+    )
+    google_books_daily_limit: int = Field(
+        default=GOOGLE_BOOKS_DEFAULT_DAILY_LIMIT,
+        ge=1,
+        le=GOOGLE_BOOKS_HARD_DAILY_CAP,
+    )
+
+
+class GoogleBooksKeyTestRequest(BaseModel):
+    api_key: str = Field(min_length=1)
+    daily_limit: int = Field(
+        default=GOOGLE_BOOKS_DEFAULT_DAILY_LIMIT,
+        ge=1,
+        le=GOOGLE_BOOKS_HARD_DAILY_CAP,
+    )
+
+
+def _apply_runtime_google_key(payload: AudiobookSettings) -> None:
+    # Keep an environment-compatible runtime attribute without requiring the key
+    # to be hard-coded anywhere in the repository.
+    object.__setattr__(settings, "GOOGLE_BOOKS_API_KEY", payload.google_books_api_key)
 
 
 def default_audiobook_settings() -> AudiobookSettings:
-    return AudiobookSettings()
+    payload = AudiobookSettings()
+    _apply_runtime_google_key(payload)
+    return payload
 
 
 def load_audiobook_settings() -> AudiobookSettings:
@@ -45,7 +79,13 @@ def load_audiobook_settings() -> AudiobookSettings:
 
     try:
         raw = json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
-        return AudiobookSettings(**raw)
+        if not raw.get("google_books_api_key"):
+            env_key = os.getenv("GOOGLE_BOOKS_API_KEY", "")
+            if env_key:
+                raw["google_books_api_key"] = env_key
+        payload = AudiobookSettings(**raw)
+        _apply_runtime_google_key(payload)
+        return payload
     except Exception as exc:
         logger.warning("[AUDIOBOOK_SETTINGS] Could not read settings: %s", exc)
         return default_audiobook_settings()
@@ -60,6 +100,7 @@ def save_audiobook_settings(payload: AudiobookSettings) -> AudiobookSettings:
             encoding="utf-8",
         )
         temporary_path.replace(_SETTINGS_PATH)
+        _apply_runtime_google_key(payload)
         return payload
     except Exception as exc:
         logger.error("[AUDIOBOOK_SETTINGS] Could not save settings: %s", exc)
@@ -74,3 +115,31 @@ def api_get_audiobook_settings():
 @router.post("/audiobook-settings")
 def api_save_audiobook_settings(payload: AudiobookSettings):
     return save_audiobook_settings(payload)
+
+
+@router.get("/audiobook-settings/google-books-status")
+def api_google_books_status():
+    payload = load_audiobook_settings()
+    return {
+        "configured": bool(payload.google_books_api_key.strip()),
+        **get_google_books_usage_status(payload.google_books_daily_limit),
+    }
+
+
+@router.post("/test-google-books")
+def api_test_google_books(payload: GoogleBooksKeyTestRequest):
+    try:
+        return test_google_books_api_key(payload.api_key, payload.daily_limit)
+    except (GoogleBooksRequestBlocked, GoogleBooksProviderError) as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+            "usage": get_google_books_usage_status(payload.daily_limit),
+        }
+    except Exception as exc:
+        logger.error("[TEST_GOOGLE_BOOKS] Error testing API key: %s", exc)
+        return {
+            "status": "error",
+            "error": "Google Books key test failed.",
+            "usage": get_google_books_usage_status(payload.daily_limit),
+        }
