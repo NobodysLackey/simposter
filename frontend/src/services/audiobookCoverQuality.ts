@@ -3,18 +3,27 @@ type CoverQuality = 'low' | 'medium' | 'high'
 const STYLE_ID = 'simposter-audiobook-cover-quality-styles'
 const BOUND_ATTRIBUTE = 'data-cover-quality-bound'
 const EDITOR_DEFAULTS_ATTRIBUTE = 'data-audiobook-editor-defaults-applied'
+const OUTPUT_SIZE = 2000
 
 function classifyResolution(width: number, height: number): CoverQuality {
   const limitingDimension = Math.min(width, height)
-  if (limitingDimension >= 1200) return 'high'
-  if (limitingDimension >= 700) return 'medium'
+
+  // Book-cover providers commonly expose smaller artwork than movie-poster APIs.
+  // Grade by the enlargement required for SimPoster's 2000px output rather than
+  // applying theatrical-poster thresholds that classify nearly everything as red.
+  if (limitingDimension >= 800) return 'high'
+  if (limitingDimension >= 400) return 'medium'
   return 'low'
 }
 
-function qualityDescription(quality: CoverQuality): string {
-  if (quality === 'high') return 'High-resolution source'
-  if (quality === 'medium') return 'Medium-resolution source; moderate upscaling required'
-  return 'Low-resolution source; substantial upscaling required'
+function qualityDescription(quality: CoverQuality, width: number, height: number): string {
+  const limitingDimension = Math.max(1, Math.min(width, height))
+  const enlargement = OUTPUT_SIZE / limitingDimension
+  const enlargementLabel = `${enlargement.toFixed(enlargement >= 10 ? 0 : 1)}× enlargement`
+
+  if (quality === 'high') return `Good source; approximately ${enlargementLabel}`
+  if (quality === 'medium') return `Usable source; approximately ${enlargementLabel}`
+  return `Low-resolution source; approximately ${enlargementLabel}`
 }
 
 function installStyles(): void {
@@ -52,7 +61,7 @@ function decorateImage(image: HTMLImageElement): void {
     const width = image.naturalWidth
     const height = image.naturalHeight
     const quality = classifyResolution(width, height)
-    const description = qualityDescription(quality)
+    const description = qualityDescription(quality, width, height)
 
     button.querySelector('.cover-resolution-corner')?.remove()
 
