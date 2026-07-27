@@ -1,0 +1,184 @@
+:root[data-theme='synthwave'] {
+  --surface: #1a1b1e;
+  --surface-soft: #222329;
+  --surface-strong: #141518;
+  --accent: #ff7edb;
+  --accent-2: #36f9f6;
+  --muted: #b6b9cc;
+  --border: #34353d;
+  --radius: 18px;
+  --shadow:
+    0 22px 72px rgba(0, 0, 0, 0.46),
+    0 0 0 1px rgba(255, 126, 219, 0.035);
+  --bg:
+    radial-gradient(circle at 14% 8%, rgba(255, 126, 219, 0.105), transparent 32%),
+    radial-gradient(circle at 84% 2%, rgba(54, 249, 246, 0.075), transparent 30%),
+    radial-gradient(circle at 50% 100%, rgba(114, 241, 184, 0.035), transparent 34%),
+    #151619;
+  --text-primary: #f4f1fb;
+  --text-secondary: #d2cce0;
+  --text-tertiary: #8b8798;
+  --text-muted: #aaa6b7;
+  --bg-primary: #151619;
+  --synth-pink: #ff7edb;
+  --synth-cyan: #36f9f6;
+  --synth-yellow: #fede5d;
+  --synth-orange: #ff8400;
+  --synth-green: #72f1b8;
+}
+
+:root[data-theme='synthwave'] body {
+  color: var(--text-primary);
+  background: var(--bg);
+}
+
+:root[data-theme='synthwave'] ::selection {
+  color: #17171a;
+  background: rgba(54, 249, 246, 0.82);
+}
+
+:root[data-theme='synthwave'] .glass {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(26, 27, 30, 0.9);
+  border-color: rgba(255, 126, 219, 0.14);
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme='synthwave'] .glass:hover {
+  border-color: rgba(54, 249, 246, 0.2);
+  box-shadow:
+    0 24px 78px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(54, 249, 246, 0.055);
+}
+
+:root[data-theme='synthwave'] .sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 126, 219, 0.025), transparent 28%),
+    rgba(20, 21, 24, 0.95) !important;
+  border-color: rgba(255, 126, 219, 0.13);
+}
+
+:root[data-theme='synthwave'] .sidebar__title {
+  color: var(--synth-pink);
+  text-shadow: 0 0 14px rgba(255, 126, 219, 0.34);
+}
+
+:root[data-theme='synthwave'] .nav-btn,
+:root[data-theme='synthwave'] .submenu-btn {
+  color: #e8e3f0;
+}
+
+:root[data-theme='synthwave'] .nav-btn.active {
+  color: #fff;
+  background: linear-gradient(90deg, rgba(255, 126, 219, 0.16), rgba(54, 249, 246, 0.1));
+  border-color: rgba(255, 126, 219, 0.32);
+  box-shadow: inset 3px 0 0 var(--synth-pink), 0 0 18px rgba(255, 126, 219, 0.055);
+}
+
+:root[data-theme='synthwave'] .nav-btn:hover:not(.active) {
+  background: rgba(54, 249, 246, 0.045);
+  border-color: rgba(54, 249, 246, 0.12);
+}
+
+:root[data-theme='synthwave'] .submenu {
+  border-left-color: rgba(54, 249, 246, 0.25);
+}
+
+:root[data-theme='synthwave'] .submenu-btn.active {
+  color: var(--synth-cyan);
+  background: rgba(54, 249, 246, 0.095);
+  border-color: rgba(54, 249, 246, 0.3);
+  text-shadow: 0 0 10px rgba(54, 249, 246, 0.22);
+}
+
+:root[data-theme='synthwave'] .submenu-btn:hover:not(.active),
+:root[data-theme='synthwave'] .collapse-btn:hover {
+  color: var(--synth-cyan);
+  background: rgba(54, 249, 246, 0.055);
+  border-color: rgba(54, 249, 246, 0.18);
+}
+
+:root[data-theme='synthwave'] input,
+:root[data-theme='synthwave'] select,
+:root[data-theme='synthwave'] textarea {
+  color: var(--text-primary);
+  background: rgba(10, 10, 13, 0.34);
+  border-color: rgba(255, 126, 219, 0.16);
+}
+
+:root[data-theme='synthwave'] select option {
+  color: var(--text-primary);
+  background: #202126;
+}
+
+:root[data-theme='synthwave'] input:focus,
+:root[data-theme='synthwave'] select:focus,
+:root[data-theme='synthwave'] textarea:focus {
+  border-color: var(--synth-cyan);
+  box-shadow:
+    0 0 0 3px rgba(54, 249, 246, 0.105),
+    0 0 16px rgba(54, 249, 246, 0.07);
+}
+
+:root[data-theme='synthwave'] input[type='checkbox'],
+:root[data-theme='synthwave'] input[type='radio'],
+:root[data-theme='synthwave'] input[type='range'] {
+  accent-color: var(--synth-pink);
+}
+
+:root[data-theme='synthwave'] button.primary,
+:root[data-theme='synthwave'] .btn-primary,
+:root[data-theme='synthwave'] .save-preset-btn {
+  color: #18171b;
+  border-color: transparent;
+  background: linear-gradient(120deg, var(--synth-pink), #d78cff 48%, var(--synth-cyan));
+  box-shadow: 0 8px 22px rgba(255, 126, 219, 0.14);
+}
+
+:root[data-theme='synthwave'] button.primary:hover:not(:disabled),
+:root[data-theme='synthwave'] .btn-primary:hover:not(:disabled),
+:root[data-theme='synthwave'] .save-preset-btn:hover:not(:disabled) {
+  box-shadow:
+    0 10px 28px rgba(255, 126, 219, 0.19),
+    0 0 18px rgba(54, 249, 246, 0.09);
+}
+
+:root[data-theme='synthwave'] .btn-save {
+  color: #18171b;
+  background: linear-gradient(120deg, #bb86fc, var(--synth-pink));
+  box-shadow: 0 7px 20px rgba(255, 126, 219, 0.13);
+}
+
+:root[data-theme='synthwave'] .btn-plex {
+  color: #191613;
+  background: linear-gradient(120deg, var(--synth-orange), var(--synth-yellow));
+  box-shadow: 0 7px 20px rgba(255, 132, 0, 0.14);
+}
+
+:root[data-theme='synthwave'] a:hover,
+:root[data-theme='synthwave'] .kicker,
+:root[data-theme='synthwave'] .status-badge.success {
+  color: var(--synth-cyan);
+}
+
+:root[data-theme='synthwave'] .status-badge.success {
+  background: rgba(54, 249, 246, 0.09);
+  border: 1px solid rgba(54, 249, 246, 0.17);
+}
+
+:root[data-theme='synthwave'] .error-text,
+:root[data-theme='synthwave'] .cover-provider-error {
+  color: #ff8eb4;
+}
+
+:root[data-theme='synthwave'] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--synth-pink), rgba(54, 249, 246, 0.72));
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+:root[data-theme='synthwave'] *:focus-visible {
+  outline-color: var(--synth-cyan);
+  box-shadow: 0 0 0 2px rgba(54, 249, 246, 0.1);
+}
