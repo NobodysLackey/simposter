@@ -4,11 +4,11 @@ import AudiobookCard from './AudiobookCard.vue'
 type Audiobook = {
   key: string
   title: string
-  author?: string
+  author: string
   year?: number | string | null
   addedAt?: number | null
   poster?: string | null
-  library_id?: string
+  library_id: string
 }
 
 defineProps<{
