@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageDraw
 
 from .universal import (
     _add_grain,
@@ -11,6 +11,14 @@ from .universal import (
     _solid_color_logo,
     apply_overlay_config,
 )
+
+
+def _aligned_axis(anchor: int, item_size: int, alignment: str) -> int:
+    if alignment in {"left", "top"}:
+        return anchor
+    if alignment in {"right", "bottom"}:
+        return anchor - item_size
+    return anchor - item_size // 2
 
 
 def render_audiobook_cover(
@@ -72,13 +80,22 @@ def render_audiobook_cover(
         elif logo_mode == "hex":
             logo = _solid_color_logo(logo, _hex_to_rgb(str(options.get("logo_hex", "#FFFFFF"))))
 
-        max_w = int(options.get("uniform_logo_max_w", int(canvas_size * 0.72)))
-        max_h = int(options.get("uniform_logo_max_h", int(canvas_size * 0.28)))
-        scale = min(max_w / max(logo.width, 1), max_h / max(logo.height, 1))
-        logo = logo.resize((max(1, int(logo.width * scale)), max(1, int(logo.height * scale))), Image.LANCZOS)
+        max_w = max(1, int(options.get("uniform_logo_max_w", int(canvas_size * 0.72))))
+        max_h = max(1, int(options.get("uniform_logo_max_h", int(canvas_size * 0.28))))
+        logo_scale = max(0.05, min(float(options.get("logo_scale", 1.0)), 3.0))
+        scale = min(max_w / max(logo.width, 1), max_h / max(logo.height, 1)) * logo_scale
+        logo = logo.resize(
+            (max(1, int(logo.width * scale)), max(1, int(logo.height * scale))),
+            Image.LANCZOS,
+        )
+
         cx = int(canvas_size * float(options.get("uniform_logo_offset_x", 0.5)))
         cy = int(canvas_size * float(options.get("uniform_logo_offset_y", 0.78)))
-        canvas.alpha_composite(logo, (cx - logo.width // 2, cy - logo.height // 2))
+        h_align = str(options.get("uniform_logo_h_align", "center") or "center").lower()
+        v_align = str(options.get("uniform_logo_v_align", "center") or "center").lower()
+        logo_x = _aligned_axis(cx, logo.width, h_align)
+        logo_y = _aligned_axis(cy, logo.height, v_align)
+        canvas.alpha_composite(logo, (logo_x, logo_y))
 
     if bool(options.get("text_overlay_enabled", False)):
         custom_text = str(options.get("custom_text", ""))
@@ -90,7 +107,11 @@ def render_audiobook_cover(
     if border_enabled and border_px > 0:
         border_color = _hex_to_rgb(str(options.get("border_color", "#FFFFFF")))
         draw = ImageDraw.Draw(canvas)
-        draw.rectangle((0, 0, canvas_size - 1, canvas_size - 1), outline=(*border_color, 255), width=border_px)
+        draw.rectangle(
+            (0, 0, canvas_size - 1, canvas_size - 1),
+            outline=(*border_color, 255),
+            width=border_px,
+        )
 
     preset_id = options.get("preset_id")
     overlay_config_ids = options.get("overlay_config_ids")
