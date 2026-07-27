@@ -107,6 +107,23 @@ function assignSetupValue(state: Record<string, any>, key: string, value: unknow
   return true
 }
 
+function readSetupValue(state: Record<string, any>, key: string): unknown {
+  const current = state[key]
+  if (current && typeof current === 'object' && 'value' in current) return current.value
+  return current
+}
+
+function ensureActiveComponentLogo(editor: HTMLElement, logoUrl: string): void {
+  const state = componentInstance(editor)?.setupState
+  if (!state) return
+  if (readSetupValue(state, 'selectedLogo') !== logoUrl) {
+    assignSetupValue(state, 'selectedLogo', logoUrl)
+  }
+  if (readSetupValue(state, 'logoMode') === 'none') {
+    assignSetupValue(state, 'logoMode', 'original')
+  }
+}
+
 function setComponentLogo(editor: HTMLElement, logoUrl: string | null, mode: string): boolean {
   const instance = componentInstance(editor)
   const state = instance?.setupState
@@ -408,10 +425,7 @@ function enhanceEditor(editor: HTMLElement): void {
 
   const key = ratingKeyForEditor(editor)
   const record = readRecord(key)
-  if (record?.active && editor.dataset.manualLogoRestored !== key) {
-    editor.dataset.manualLogoRestored = key
-    setComponentLogo(editor, record.url, 'original')
-  }
+  if (record?.active) ensureActiveComponentLogo(editor, record.url)
   updatePanel(editor)
 }
 
