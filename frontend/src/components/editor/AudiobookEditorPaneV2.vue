@@ -19,6 +19,18 @@ type PresetRecord = {
   options?: Record<string, any>
 }
 
+type CoverOption = {
+  url: string
+  thumb?: string
+  source: 'google' | 'openlibrary' | 'audnexus'
+  title?: string
+  author?: string
+  year?: number | string | null
+  provider_id?: string | null
+  asin?: string | null
+  narrator?: string | null
+}
+
 type AudiobookSettings = {
   enabled: boolean
   library_mappings: Array<{
@@ -34,6 +46,8 @@ type AudiobookSettings = {
   default_text_enabled: boolean
   default_text: string
   default_logo_mode: 'original' | 'match' | 'hex' | 'none'
+  default_matte: number
+  default_fade: number
   default_grain: number
   default_vignette: number
 }
@@ -50,11 +64,13 @@ const defaultSettings: AudiobookSettings = {
   default_preset_id: 'default',
   save_beside_media: true,
   fallback_save_path: '/config/output/{library}/{author}/{title}',
-  default_text_enabled: true,
+  default_text_enabled: false,
   default_text: '{title}\n{author}',
   default_logo_mode: 'none',
-  default_grain: 0,
-  default_vignette: 20,
+  default_matte: 0,
+  default_fade: 15,
+  default_grain: 15,
+  default_vignette: 15,
 }
 
 const loading = ref(false)
@@ -77,6 +93,14 @@ const uploadedBackgroundUrl = ref<string | null>(null)
 const posterUploading = ref(false)
 const posterDropActive = ref(false)
 
+const coverOptions = ref<CoverOption[]>([])
+const coverOptionsLoading = ref(false)
+const coverOptionsError = ref('')
+const showGoogleBooks = ref(true)
+const showOpenLibrary = ref(true)
+const showAudnexus = ref(true)
+const audibleAsin = ref('')
+
 const selectedLogo = ref<string | null>(null)
 const uploadedLogoUrl = ref<string | null>(null)
 const logoUploading = ref(false)
@@ -87,10 +111,10 @@ const logoHex = ref('#ffffff')
 const options = ref({
   posterZoom: 100,
   posterShiftY: 0,
-  matteHeight: 25,
-  fadeHeight: 22,
-  vignette: 20,
-  grain: 0,
+  matteHeight: 0,
+  fadeHeight: 15,
+  vignette: 15,
+  grain: 15,
   logoScale: 100,
   uniformLogoMaxW: 1400,
   uniformLogoMaxH: 500,
@@ -103,7 +127,7 @@ const options = ref({
   borderColor: '#ffffff',
 })
 
-const textOverlayEnabled = ref(true)
+const textOverlayEnabled = ref(false)
 const customText = ref('{title}\n{author}')
 const fontFamily = ref('DejaVu Sans')
 const fontSize = ref(120)
@@ -134,7 +158,7 @@ const sectionOpen = ref({
   cover: true,
   metadata: false,
   logo: true,
-  text: true,
+  text: false,
   effects: false,
 })
 
@@ -152,6 +176,21 @@ const displayedPresets = computed<PresetRecord[]>(() => {
   if (presets.value.length > 0) return presets.value
   return [{ id: 'default', name: 'Default' }]
 })
+
+const filteredCoverOptions = computed(() =>
+  coverOptions.value.filter((cover) => {
+    if (cover.source === 'google') return showGoogleBooks.value
+    if (cover.source === 'openlibrary') return showOpenLibrary.value
+    if (cover.source === 'audnexus') return showAudnexus.value
+    return true
+  }),
+)
+
+const coverSourceLabel = (source: CoverOption['source']) => {
+  if (source === 'google') return 'GOOGLE'
+  if (source === 'openlibrary') return 'OPEN LIBRARY'
+  return 'AUDNEXUS'
+}
 
 const activeLibrarySettings = computed(() =>
   audiobookSettings.value.library_mappings.find(
@@ -283,8 +322,77 @@ const applyAudiobookDefaults = () => {
   textOverlayEnabled.value = audiobookSettings.value.default_text_enabled
   customText.value = audiobookSettings.value.default_text || '{title}\n{author}'
   logoMode.value = audiobookSettings.value.default_logo_mode || 'none'
-  options.value.grain = audiobookSettings.value.default_grain ?? 0
-  options.value.vignette = audiobookSettings.value.default_vignette ?? 20
+  options.value.matteHeight = audiobookSettings.value.default_matte ?? 0
+  options.value.fadeHeight = audiobookSettings.value.default_fade ?? 15
+  options.value.grain = audiobookSettings.value.default_grain ?? 15
+  options.value.vignette = audiobookSettings.value.default_vignette ?? 15
+}
+
+const loadCoverOptions = async (forceRefresh = false) => {
+  coverOptionsLoading.value = true
+  coverOptionsError.value = ''
+
+  try {
+    const params = new URLSearchParams({
+      title: title.value,
+      author: author.value,
+      google: String(showGoogleBooks.value),
+      openlibrary: String(showOpenLibrary.value),
+      audnexus: String(showAudnexus.value),
+      force_refresh: String(forceRefresh),
+    })
+
+    const ratingKey = encodeURIComponent(props.audiobook.key)
+    const response = await fetch(
+      `${apiBase}/api/audiobook/${ratingKey}/cover-options?${params.toString()}`,
+    )
+
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+
+    const data = await response.json()
+
+    coverOptions.value = Array.isArray(data.covers)
+      ? data.covers
+      : []
+
+    audibleAsin.value =
+      typeof data.asin === 'string'
+        ? data.asin
+        : ''
+
+    const providerLabels: Record<string, string> = {
+      google: 'Google Books',
+      openlibrary: 'Open Library',
+      audnexus: 'Audnexus',
+    }
+
+    const providerErrors = Object.entries(data.errors || {})
+
+    coverOptionsError.value = providerErrors
+      .map(([provider, message]) =>
+        `${providerLabels[provider] || provider}: ${String(message)}`,
+      )
+      .join(' · ')
+  } catch (cause) {
+    coverOptionsError.value =
+      cause instanceof Error
+        ? cause.message
+        : 'Cover search failed.'
+
+    coverOptions.value = []
+  } finally {
+    coverOptionsLoading.value = false
+  }
+}
+
+const selectCoverOption = (cover: CoverOption) => {
+  selectedBackground.value = cover.url
+  uploadedBackgroundUrl.value = null
+  if (cover.asin && !audibleAsin.value) audibleAsin.value = cover.asin
+  if (cover.narrator && !narrator.value) narrator.value = cover.narrator
+  void renderPreview()
 }
 
 const loadAudiobookSettings = async () => {
@@ -533,6 +641,7 @@ watch(selectedPreset, (presetId) => {
   if (preset?.options) applyPresetOptions(preset.options)
 })
 
+
 onMounted(async () => {
   selectedBackground.value = currentCoverUrl.value
   await Promise.all([
@@ -550,7 +659,7 @@ onMounted(async () => {
   selectedPreset.value = effectiveDefaultPreset.value
   const preset = presets.value.find((item) => item.id === selectedPreset.value)
   if (preset?.options) applyPresetOptions(preset.options)
-  await renderPreview()
+  await Promise.all([renderPreview(), loadCoverOptions()])
 })
 </script>
 
@@ -583,8 +692,20 @@ onMounted(async () => {
                   </option>
                 </select>
               </label>
-              <button class="square-action" title="Reload preset" :disabled="presetLoading" @click="reloadPreset">↻</button>
-              <button class="save-preset-btn" title="Save current settings" :disabled="presetLoading" @click="saveCurrentPreset">💾</button>
+              <button class="reload-preset-btn" title="Reload preset values" :disabled="presetLoading" @click="reloadPreset">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+              </button>
+              <button class="save-preset-btn" title="Save current settings to preset" :disabled="presetLoading" @click="saveCurrentPreset">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                  <polyline points="17 21 17 13 7 13 7 21"/>
+                  <polyline points="7 3 7 8 15 8"/>
+                </svg>
+              </button>
             </div>
             <div class="preset-row new-preset-row">
               <input v-model="newPresetId" type="text" placeholder="New preset id" class="new-preset-input" />
@@ -599,6 +720,52 @@ onMounted(async () => {
             <span class="chevron" :class="{ open: sectionOpen.cover }">⌃</span>
           </button>
           <div v-show="sectionOpen.cover" class="acc-body">
+            <div class="cover-provider-controls">
+              <label class="inline-field checkbox"><input v-model="showGoogleBooks" type="checkbox" /><span>Google Books</span></label>
+              <label class="inline-field checkbox"><input v-model="showOpenLibrary" type="checkbox" /><span>Open Library</span></label>
+              <label class="inline-field checkbox"><input v-model="showAudnexus" type="checkbox" /><span>Audnexus</span></label>
+            </div>
+
+            <div v-if="showAudnexus" class="audnexus-row">
+              <label class="field-label">
+                Detected Audible ASIN
+                <input
+                  :value="audibleAsin"
+                  type="text"
+                  readonly
+                  placeholder="Not found in Plex metadata"
+                />
+              </label>
+              <button class="reload-preset-btn cover-refresh-btn" :disabled="coverOptionsLoading" title="Refresh cover results" @click="loadCoverOptions(true)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="cover-results">
+              <div v-if="coverOptionsLoading" class="cover-results-message">Searching cover providers…</div>
+              <div v-else-if="filteredCoverOptions.length" class="cover-thumb-strip">
+                <button
+                  v-for="cover in filteredCoverOptions"
+                  :key="`${cover.source}-${cover.provider_id || cover.url}`"
+                  type="button"
+                  class="cover-thumb"
+                  :class="{ active: selectedBackground === cover.url }"
+                  :title="[cover.title, cover.author, cover.year].filter(Boolean).join(' · ')"
+                  @click="selectCoverOption(cover)"
+                >
+                  <img :src="cover.thumb || cover.url" :alt="cover.title || 'Audiobook cover option'" />
+                  <span class="source-badge">{{ coverSourceLabel(cover.source) }}</span>
+                </button>
+              </div>
+              <div v-else class="cover-results-message">No matching covers found from the selected sources.</div>
+              <p v-if="coverOptionsError" class="cover-provider-error">{{ coverOptionsError }}</p>
+            </div>
+
+            <div class="sub-section-title">Custom Upload</div>
             <div
               class="upload-zone"
               :class="{ 'drag-over': posterDropActive, 'has-upload': !!uploadedBackgroundUrl }"
@@ -623,6 +790,8 @@ onMounted(async () => {
             <div class="slider"><label>Cover Shift Y %</label><div class="slider-row"><input v-model.number="options.posterShiftY" type="range" min="-50" max="50" /><input v-model.number="options.posterShiftY" type="number" min="-50" max="50" class="slider-num" /></div></div>
             <div class="slider"><label>Matte Height %</label><div class="slider-row"><input v-model.number="options.matteHeight" type="range" min="0" max="50" /><input v-model.number="options.matteHeight" type="number" min="0" max="50" class="slider-num" /></div></div>
             <div class="slider"><label>Fade Height %</label><div class="slider-row"><input v-model.number="options.fadeHeight" type="range" min="0" max="100" /><input v-model.number="options.fadeHeight" type="number" min="0" max="100" class="slider-num" /></div></div>
+            <div class="slider"><label>Vignette</label><div class="slider-row"><input v-model.number="options.vignette" type="range" min="0" max="100" /><input v-model.number="options.vignette" type="number" min="0" max="100" class="slider-num" /></div></div>
+            <div class="slider"><label>Grain</label><div class="slider-row"><input v-model.number="options.grain" type="range" min="0" max="60" /><input v-model.number="options.grain" type="number" min="0" max="60" class="slider-num" /></div></div>
           </div>
         </div>
 
@@ -744,12 +913,10 @@ onMounted(async () => {
 
         <div class="acc-section">
           <button class="acc-header" @click="toggleSection('effects')">
-            <span>Effects & Border</span>
+            <span>Border</span>
             <span class="chevron" :class="{ open: sectionOpen.effects }">⌃</span>
           </button>
           <div v-show="sectionOpen.effects" class="acc-body">
-            <div class="slider"><label>Vignette</label><div class="slider-row"><input v-model.number="options.vignette" type="range" min="0" max="100" /><input v-model.number="options.vignette" type="number" min="0" max="100" class="slider-num" /></div></div>
-            <div class="slider"><label>Grain</label><div class="slider-row"><input v-model.number="options.grain" type="range" min="0" max="60" /><input v-model.number="options.grain" type="number" min="0" max="60" class="slider-num" /></div></div>
             <label class="inline-field checkbox"><input v-model="options.borderEnabled" type="checkbox" /><span>Border</span></label>
             <div v-if="options.borderEnabled" class="slider"><label>Border Thickness</label><div class="slider-row"><input v-model.number="options.borderThickness" type="range" min="1" max="50" /><input v-model.number="options.borderThickness" type="number" min="1" max="50" class="slider-num" /></div></div>
             <label v-if="options.borderEnabled" class="field-label">Border Color<input v-model="options.borderColor" type="color" /></label>
@@ -825,11 +992,63 @@ onMounted(async () => {
 .preset-row { display: flex; gap: 8px; align-items: flex-end; }
 .preset-select { flex: 1; }
 .new-preset-row { margin-top: 8px; }
-.new-preset-input { flex: 1; }
-.square-action, .save-preset-btn { min-width: 42px; height: 38px; border-radius: 9px; border: 1px solid var(--border); color: #eef2ff; cursor: pointer; }
-.square-action { background: rgba(255,255,255,.04); }
-.save-preset-btn { border: 0; background: linear-gradient(120deg,#3dd6b7,#5b8dee); font-weight: 700; }
+.new-preset-input { flex: 1; padding: 10px; }
 .save-preset-btn.wide { width: 120px; }
+
+.save-preset-btn {
+  flex: 0 0 auto;
+  min-width: 42px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(120deg, #3dd6b7, #5b8dee);
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 14px;
+  box-shadow: 0 6px 18px rgba(61, 214, 183, 0.18);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.save-preset-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(61, 214, 183, 0.24);
+}
+
+.save-preset-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reload-preset-btn {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #dce6ff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reload-preset-btn:hover:not(:disabled) {
+  background: rgba(61, 214, 183, 0.1);
+  border-color: rgba(61, 214, 183, 0.3);
+  color: var(--accent);
+}
+
+.reload-preset-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .sub-section-title { margin: 16px 0 10px; padding-bottom: 7px; border-bottom: 1px solid rgba(255,255,255,.06); color: #bdc9e6; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 .slider { margin-bottom: 14px; }
 .slider > label { display: block; margin-bottom: 6px; color: #cdd8f2; font-size: 13px; }
@@ -838,6 +1057,19 @@ onMounted(async () => {
 .slider-num { width: 84px; padding: 7px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.04); color: #e6edff; text-align: center; }
 .inline-field.checkbox { display: flex; flex-direction: row; align-items: center; gap: 7px; margin: 10px 0; color: #dce6ff; font-size: 13px; }
 .inline-field.checkbox input { width: auto; }
+.cover-provider-controls { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-bottom: 8px; }
+.audnexus-row { display: grid; grid-template-columns: 1fr 38px; gap: 8px; align-items: end; margin-bottom: 10px; }
+.audnexus-row .field-label { margin-bottom: 0; }
+.cover-refresh-btn { margin-bottom: 0; }
+.cover-results { margin-bottom: 14px; }
+.cover-thumb-strip { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; max-height: 294px; overflow-y: auto; padding: 3px; }
+.cover-thumb { position: relative; aspect-ratio: 1/1; padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: 9px; background: rgba(255,255,255,.025); cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .15s; }
+.cover-thumb:hover { border-color: rgba(61,214,183,.4); transform: translateY(-1px); }
+.cover-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.cover-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.cover-thumb .source-badge { position: absolute; left: 4px; bottom: 4px; max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 5px; border: 1px solid rgba(61,214,183,.3); border-radius: 4px; background: rgba(0,0,0,.78); color: #3dd6b7; font-size: 8px; font-weight: 700; letter-spacing: .25px; }
+.cover-results-message { padding: 13px; border: 1px dashed #344154; border-radius: 9px; color: var(--muted); font-size: 12px; text-align: center; }
+.cover-provider-error { margin: 7px 0 0; color: #ffb3b3; font-size: 10px; line-height: 1.35; }
 .upload-zone { min-height: 94px; border: 1px dashed #344154; border-radius: 10px; display: grid; place-items: center; position: relative; overflow: hidden; color: #aeb9cf; cursor: pointer; }
 .upload-zone.drag-over { border-color: var(--accent); background: rgba(61,214,183,.06); }
 .upload-zone.has-upload { min-height: 130px; }
