@@ -85,13 +85,13 @@ function startCoverQualityObserver(): void {
   scanCoverImages()
 
   const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (!(node instanceof Element)) continue
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return
         if (node.matches('.cover-thumb img')) decorateImage(node as HTMLImageElement)
         scanCoverImages(node)
-      }
-    }
+      })
+    })
   })
 
   observer.observe(document.body, { childList: true, subtree: true })
