@@ -27,7 +27,7 @@ const props = withDefaults(
     activeSubmenu: '',
     mobileOpen: false,
     collapsed: false,
-  }
+  },
 )
 
 const emit = defineEmits<{
@@ -38,25 +38,42 @@ const emit = defineEmits<{
 
 const activeKey = computed(() => props.active)
 
+const displayTabs = computed<MenuItem[]>(() => {
+  if (props.tabs.some((tab) => tab.key === 'audiobooks')) return props.tabs
+
+  const audiobookTab: MenuItem = { key: 'audiobooks', label: '🎧 Audiobooks' }
+  const insertionIndex = props.tabs.findIndex((tab) => tab.key === 'template-manager')
+
+  if (insertionIndex < 0) return [...props.tabs, audiobookTab]
+  return [
+    ...props.tabs.slice(0, insertionIndex),
+    audiobookTab,
+    ...props.tabs.slice(insertionIndex),
+  ]
+})
+
 const handleTabClick = (tab: MenuItem) => {
   emit('select', tab.key)
 }
 
-// Extract the leading emoji character from a label like "🎬 Movies"
 const getIcon = (label: string) => {
-  // Match emoji at start of string (including multi-codepoint sequences)
   const match = label.match(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base})+/u)
   return match ? match[0] : label.charAt(0)
 }
 
-const getTextLabel = (label: string) => label.replace(/^[\p{Emoji_Presentation}\p{Emoji}\uFE0F\s]+/u, '').trim()
+const getTextLabel = (label: string) =>
+  label.replace(/^[\p{Emoji_Presentation}\p{Emoji}\uFE0F\s]+/u, '').trim()
 </script>
 
 <template>
-  <aside :class="['sidebar', 'glass', { 'mobile-open': mobileOpen, 'collapsed': collapsed }]">
+  <aside :class="['sidebar', 'glass', { 'mobile-open': mobileOpen, collapsed }]">
     <div class="sidebar__header">
       <span v-if="!collapsed" class="sidebar__title">Simposter</span>
-      <button class="collapse-btn" :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" @click="emit('toggleCollapse')">
+      <button
+        class="collapse-btn"
+        :title="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        @click="emit('toggleCollapse')"
+      >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline v-if="collapsed" points="9 18 15 12 9 6" />
           <polyline v-else points="15 18 9 12 15 6" />
@@ -65,8 +82,7 @@ const getTextLabel = (label: string) => label.replace(/^[\p{Emoji_Presentation}\
     </div>
 
     <nav>
-      <div v-for="tab in tabs" :key="tab.key" class="nav-item">
-        <!-- Collapsed: icon button with tooltip -->
+      <div v-for="tab in displayTabs" :key="tab.key" class="nav-item">
         <button
           v-if="collapsed"
           :class="['nav-btn', 'icon-btn', { active: tab.key === activeKey }]"
@@ -76,7 +92,6 @@ const getTextLabel = (label: string) => label.replace(/^[\p{Emoji_Presentation}\
           <span class="nav-icon">{{ getIcon(tab.label) }}</span>
         </button>
 
-        <!-- Expanded: full label button -->
         <button
           v-else
           :class="['nav-btn', { active: tab.key === activeKey }]"
@@ -85,8 +100,10 @@ const getTextLabel = (label: string) => label.replace(/^[\p{Emoji_Presentation}\
           {{ tab.label }}
         </button>
 
-        <!-- Submenu — only shown when expanded -->
-        <div v-if="!collapsed && tab.submenu && tab.submenu.length > 0 && tab.key === activeKey" class="submenu">
+        <div
+          v-if="!collapsed && tab.submenu && tab.submenu.length > 0 && tab.key === activeKey"
+          class="submenu"
+        >
           <button
             v-for="item in tab.submenu"
             :key="item.key"
@@ -98,7 +115,6 @@ const getTextLabel = (label: string) => label.replace(/^[\p{Emoji_Presentation}\
         </div>
       </div>
     </nav>
-
   </aside>
 </template>
 
@@ -168,10 +184,7 @@ nav {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition:
-    background 0.2s,
-    border-color 0.2s,
-    transform 0.15s;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s;
   width: 100%;
   text-align: left;
   white-space: nowrap;
@@ -241,7 +254,6 @@ nav {
   color: var(--accent);
 }
 
-/* Collapse toggle button */
 .collapse-btn {
   display: flex;
   align-items: center;
@@ -263,7 +275,6 @@ nav {
   border-color: rgba(61, 214, 183, 0.2);
 }
 
-/* Mobile responsive styles */
 @media (max-width: 900px) {
   .sidebar {
     position: fixed;
@@ -284,7 +295,6 @@ nav {
     transform: translateX(0);
   }
 
-  /* Hide collapse toggle on mobile — sidebar is already overlay */
   .collapse-btn {
     display: none;
   }
