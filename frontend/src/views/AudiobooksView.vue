@@ -4,12 +4,25 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
 import { getApiBase } from '@/services/apiBase'
 import AudiobookGrid from '@/components/audiobooks/AudiobookGrid.vue'
-import AudiobookEditorPane from '@/components/editor/AudiobookEditorPane.vue'
+import AudiobookEditorPaneV2 from '@/components/editor/AudiobookEditorPaneV2.vue'
 
 interface AudiobookLibrary {
   id: string
   title: string
   type: string
+}
+
+interface AudiobookLibraryMapping {
+  id: string
+  title?: string
+  display_name?: string
+  enabled?: boolean
+  default_preset_id?: string
+}
+
+interface AudiobookSettings {
+  enabled: boolean
+  library_mappings: AudiobookLibraryMapping[]
 }
 
 interface Audiobook {
@@ -30,17 +43,41 @@ const route = useRoute()
 const router = useRouter()
 const settings = useSettingsStore()
 
-const libraries = ref<AudiobookLibrary[]>([])
+const discoveredLibraries = ref<AudiobookLibrary[]>([])
+const audiobookSettings = ref<AudiobookSettings>({ enabled: true, library_mappings: [] })
 const selectedLibraryId = ref((route.query.library as string) || '')
 const audiobooks = ref<Audiobook[]>([])
 const selectedBook = ref<Audiobook | null>(null)
 const loading = ref(false)
+const configurationLoading = ref(true)
+const initialized = ref(false)
 const error = ref<string | null>(null)
 const page = ref(Number(route.query.page) || 1)
 const sortBy = ref<'title' | 'year' | 'addedAt'>((route.query.sortBy as any) || 'title')
 const sortOrder = ref<'asc' | 'desc'>((route.query.sortOrder as any) || 'asc')
 
 const pageSize = computed(() => settings.posterDensity.value || 20)
+
+const libraries = computed<AudiobookLibrary[]>(() => {
+  const mappings = audiobookSettings.value.library_mappings || []
+  if (!mappings.length) return discoveredLibraries.value
+
+  const enabledMappings = mappings.filter((mapping) => mapping.enabled !== false)
+  return enabledMappings
+    .map((mapping) => {
+      const discovered = discoveredLibraries.value.find((library) => String(library.id) === String(mapping.id))
+      if (!discovered) return null
+      return {
+        ...discovered,
+        title: mapping.display_name || mapping.title || discovered.title,
+      }
+    })
+    .filter((library): library is AudiobookLibrary => Boolean(library))
+})
+
+const activeLibrary = computed(() =>
+  libraries.value.find((library) => String(library.id) === String(selectedLibraryId.value)),
+)
 
 const normalizeCoverUrl = (book: Audiobook) => {
   const url = book.poster || `/api/audiobook/${book.key}/cover`
@@ -76,23 +113,34 @@ const paged = computed(() => {
   return sorted.value.slice(start, start + pageSize.value)
 })
 
-const loadLibraries = async () => {
+const loadConfiguration = async () => {
+  configurationLoading.value = true
   error.value = null
   try {
-    const response = await fetch(`${apiBase}/api/audiobook-libraries`)
-    if (!response.ok) throw new Error(await response.text())
-    libraries.value = await response.json()
+    const [settingsResponse, librariesResponse] = await Promise.all([
+      fetch(`${apiBase}/api/audiobook-settings`),
+      fetch(`${apiBase}/api/audiobook-libraries`),
+    ])
+    if (!settingsResponse.ok) throw new Error(await settingsResponse.text())
+    if (!librariesResponse.ok) throw new Error(await librariesResponse.text())
+    audiobookSettings.value = await settingsResponse.json()
+    discoveredLibraries.value = await librariesResponse.json()
 
-    if (!selectedLibraryId.value && libraries.value.length > 0) {
-      selectedLibraryId.value = libraries.value[0]!.id
-    }
+    const requestedLibrary = String(route.query.library || selectedLibraryId.value || '')
+    const requestedIsVisible = libraries.value.some((library) => String(library.id) === requestedLibrary)
+    selectedLibraryId.value = requestedIsVisible ? requestedLibrary : libraries.value[0]?.id || ''
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : 'Failed to load Plex music libraries.'
+    error.value = cause instanceof Error ? cause.message : 'Failed to load audiobook configuration.'
+  } finally {
+    configurationLoading.value = false
   }
 }
 
 const loadAudiobooks = async () => {
-  if (!selectedLibraryId.value) return
+  if (!selectedLibraryId.value || !audiobookSettings.value.enabled) {
+    audiobooks.value = []
+    return
+  }
   loading.value = true
   error.value = null
   try {
@@ -121,6 +169,7 @@ const loadAudiobooks = async () => {
 
 const refreshData = async () => {
   page.value = 1
+  await loadConfiguration()
   await loadAudiobooks()
 }
 
@@ -164,15 +213,23 @@ const prevPage = () => {
 }
 
 watch(selectedLibraryId, async (libraryId) => {
-  if (!libraryId) return
+  if (!initialized.value || !libraryId) return
   selectedBook.value = null
   page.value = 1
   await router.replace({ query: { library: libraryId } })
   await loadAudiobooks()
 })
 
+watch(() => route.query.library, async (libraryId) => {
+  if (!initialized.value || !libraryId) return
+  const value = String(libraryId)
+  if (value !== selectedLibraryId.value && libraries.value.some((library) => String(library.id) === value)) {
+    selectedLibraryId.value = value
+  }
+})
+
 watch([page, sortBy, sortOrder], () => {
-  if (selectedBook.value) return
+  if (selectedBook.value || !initialized.value) return
   const query: Record<string, string> = {}
   if (selectedLibraryId.value) query.library = selectedLibraryId.value
   if (page.value > 1) query.page = String(page.value)
@@ -203,13 +260,14 @@ watch(() => route.query.edit, (editKey) => {
 })
 
 onMounted(async () => {
-  await loadLibraries()
+  await loadConfiguration()
+  initialized.value = true
   await loadAudiobooks()
 })
 </script>
 
 <template>
-  <AudiobookEditorPane
+  <AudiobookEditorPaneV2
     v-if="selectedBook"
     :audiobook="selectedBook"
     @close="closeEditor"
@@ -219,7 +277,7 @@ onMounted(async () => {
   <div v-else class="view">
     <div class="toolbar glass">
       <div class="controls">
-        <div class="control-group">
+        <div v-if="libraries.length > 0" class="control-group">
           <label for="audiobook-library">Library:</label>
           <select id="audiobook-library" v-model="selectedLibraryId" class="control-select">
             <option v-for="library in libraries" :key="library.id" :value="library.id">
@@ -242,11 +300,14 @@ onMounted(async () => {
             <option value="desc">{{ sortBy === 'title' ? 'Z-A' : 'Newest First' }}</option>
           </select>
         </div>
-        <button class="refresh-btn" :disabled="loading" @click="refreshData">
-          {{ loading ? 'Refreshing...' : 'Refresh Cache' }}
+        <button class="refresh-btn" :disabled="loading || configurationLoading" @click="refreshData">
+          {{ loading || configurationLoading ? 'Refreshing...' : 'Refresh Cache' }}
         </button>
         <button class="refresh-btn danger" :disabled="loading" @click="forceCoverRefresh">
           Force Cover Refresh
+        </button>
+        <button class="settings-btn" @click="router.push({ name: 'audiobook-settings' })">
+          ⚙️ Audiobook Settings
         </button>
       </div>
     </div>
@@ -255,19 +316,24 @@ onMounted(async () => {
       <p>{{ error }}</p>
       <button @click="refreshData">Retry</button>
     </div>
-    <div v-else-if="loading" class="callout">Loading audiobooks…</div>
+    <div v-else-if="configurationLoading || loading" class="callout">Loading audiobooks…</div>
+    <div v-else-if="!audiobookSettings.enabled" class="callout">
+      <p>Audiobook functionality is disabled.</p>
+      <button @click="router.push({ name: 'audiobook-settings' })">Open Audiobook Settings</button>
+    </div>
     <div v-else-if="libraries.length === 0" class="callout">
-      No Plex music libraries were found.
+      <p>No audiobook libraries are enabled.</p>
+      <button @click="router.push({ name: 'audiobook-settings' })">Configure Libraries</button>
     </div>
     <AudiobookGrid
       v-else
-      heading="Audiobooks"
+      :heading="activeLibrary?.title || 'Audiobooks'"
       :items="paged"
       @select="openEditor"
       @refresh="refreshCover"
     />
 
-    <div class="toolbar glass pagination">
+    <div v-if="audiobookSettings.enabled && libraries.length > 0" class="toolbar glass pagination">
       <div class="pager">
         <button :disabled="page === 1" @click="prevPage">Prev</button>
         <span>{{ page }} / {{ totalPages }}</span>
@@ -278,124 +344,21 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.view {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 12px;
-  flex-wrap: wrap;
-}
-
-.toolbar.pagination {
-  justify-content: center;
-}
-
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.control-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.control-group label {
-  font-size: 13px;
-  color: #dce6ff;
-  font-weight: 500;
-}
-
-.control-select {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #e6edff;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.refresh-btn {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px 14px;
-  background: rgba(61, 214, 183, 0.15);
-  color: #3dd6b7;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  margin: 0;
-}
-
-.refresh-btn.danger {
-  border-color: rgba(255, 107, 107, 0.5);
-  background: rgba(255, 107, 107, 0.12);
-  color: #ffb3b3;
-}
-
-.pager {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #dce6ff;
-}
-
-.pager button,
-.callout button {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.05);
-  color: #dce6ff;
-  cursor: pointer;
-}
-
-.callout {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  color: #e1e8ff;
-}
-
-.callout.error {
-  border-color: rgba(255, 126, 126, 0.4);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-@media (max-width: 900px) {
-  .controls {
-    gap: 10px;
-    width: 100%;
-  }
-
-  .control-group {
-    flex: 1;
-    min-width: 120px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-  }
-
-  .control-select,
-  .refresh-btn {
-    width: 100%;
-  }
-}
+.view { display: flex; flex-direction: column; gap: 16px; }
+.toolbar { display: flex; align-items: center; justify-content: flex-start; gap: 12px; padding: 12px; flex-wrap: wrap; }
+.toolbar.pagination { justify-content: center; }
+.controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; width: 100%; }
+.control-group { display: flex; align-items: center; gap: 8px; }
+.control-group label { font-size: 13px; color: #dce6ff; font-weight: 500; }
+.control-select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; background: rgba(255,255,255,.04); color: #e6edff; font-size: 13px; cursor: pointer; }
+.refresh-btn, .settings-btn { border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; margin: 0; }
+.refresh-btn { background: rgba(61,214,183,.15); color: #3dd6b7; }
+.refresh-btn.danger { border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.12); color: #ffb3b3; }
+.settings-btn { margin-left: auto; background: rgba(91,141,238,.14); color: #b7c9ff; }
+.pager { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #dce6ff; }
+.pager button, .callout button { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; background: rgba(255,255,255,.05); color: #dce6ff; cursor: pointer; }
+.callout { border: 1px solid var(--border); border-radius: 12px; padding: 14px; background: rgba(255,255,255,.03); color: #e1e8ff; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.callout.error { border-color: rgba(255,126,126,.4); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 900px) { .settings-btn { margin-left: 0; } .controls { gap: 10px; } .control-group { flex: 1; min-width: 130px; flex-direction: column; align-items: flex-start; } .control-select { width: 100%; } }
 </style>
