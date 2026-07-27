@@ -2,7 +2,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote_plus
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
 import requests
 from fastapi import APIRouter, Query
@@ -32,6 +32,28 @@ def _https(url: Optional[str]) -> str:
     if value.startswith("http://"):
         return "https://" + value[7:]
     return value
+
+
+def _upgrade_google_image_url(url: Optional[str]) -> str:
+    """Request the largest practical Google Books cover variant.
+
+    Google often returns a thumbnail content URL even when the underlying scan is
+    larger. These query changes do not consume an additional Books API request;
+    they only ask the image host for a larger rendition when one exists.
+    """
+    normalized = _https(url)
+    if not normalized:
+        return ""
+
+    parsed = urlparse(normalized)
+    if "google" not in parsed.netloc:
+        return normalized
+
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["zoom"] = "3"
+    query["w"] = "1600"
+    query.pop("edge", None)
+    return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
 def _cover(
@@ -114,17 +136,17 @@ def _google_books(title: str, author: str, force_refresh: bool) -> Tuple[List[Di
         info = item.get("volumeInfo") or {}
         links = info.get("imageLinks") or {}
         url = (
-            links.get("extraLarge")
-            or links.get("large")
-            or links.get("medium")
-            or links.get("small")
-            or links.get("thumbnail")
+            _upgrade_google_image_url(links.get("extraLarge"))
+            or _upgrade_google_image_url(links.get("large"))
+            or _upgrade_google_image_url(links.get("medium"))
+            or _upgrade_google_image_url(links.get("small"))
+            or _upgrade_google_image_url(links.get("thumbnail"))
+            or _upgrade_google_image_url(links.get("smallThumbnail"))
         )
-        thumb = links.get("thumbnail") or links.get("smallThumbnail") or url
         cover = _cover(
             source="google",
             url=url,
-            thumb=thumb,
+            thumb=url,
             title=str(info.get("title") or ""),
             author=", ".join(info.get("authors") or []),
             identifier=str(item.get("id") or ""),
@@ -156,10 +178,11 @@ def _open_library(title: str, author: str) -> List[Dict[str, Any]]:
         cover_id = item.get("cover_i")
         if not cover_id:
             continue
+        large_url = f"https://covers.openlibrary.org/b/id/{cover_id}-L.jpg?default=false"
         cover = _cover(
             source="openlibrary",
-            url=f"https://covers.openlibrary.org/b/id/{cover_id}-L.jpg?default=false",
-            thumb=f"https://covers.openlibrary.org/b/id/{cover_id}-M.jpg?default=false",
+            url=large_url,
+            thumb=large_url,
             title=str(item.get("title") or ""),
             author=", ".join(item.get("author_name") or []),
             identifier=str(item.get("key") or cover_id),
@@ -199,7 +222,7 @@ def _dedupe(covers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
     seen = set()
     for cover in covers:
-        normalized = re.sub(r"[?&](?:zoom|edge|source|printsec)=[^&]+", "", cover["url"]).lower()
+        normalized = re.sub(r"[?&](?:zoom|edge|source|printsec|w)=[^&]+", "", cover["url"]).lower()
         if normalized in seen:
             continue
         seen.add(normalized)
@@ -217,8 +240,6 @@ def api_audiobook_cover_options(
     audnexus: bool = Query(True),
     force_refresh: bool = Query(False),
 ):
-    # This endpoint is intentionally single-item only. It is not called by batch,
-    # webhook, scheduler, or library-scan workflows.
     provider_key = f"{rating_key}|{title}|{author}|{google}|{openlibrary}|{audnexus}"
     cached = _CACHE.get(provider_key)
     if cached and not force_refresh and time.time() - cached[0] < _CACHE_TTL_SECONDS:
