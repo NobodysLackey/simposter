@@ -2,6 +2,7 @@
 
 from PIL import Image
 from ..config import settings, logger
+from .logo_geometry import trim_transparent_logo
 from .universal import build_base_poster, _hex_to_rgb, _solid_color_logo, _render_text_overlay
 
 
@@ -11,68 +12,53 @@ def render_uniform_logo(bg: Image.Image, logo: Image.Image, options: dict) -> Im
     Allows override mode for manual scaling & Y offset.
     """
 
-    # Build base (zoom, matte, fade, grain, etc.)
     canvas = build_base_poster(bg, options)
     W, H = canvas.size
 
-    # Handle logo rendering if logo is provided
     if logo is not None:
-        # Normalize SVG to raster if needed
-        if logo.format == "SVG" or (hasattr(logo, "mode") and logo.mode == "P") or logo.mode == "LA":
-            logo = logo.convert("RGBA")
-        else:
-            logo = logo.convert("RGBA")
+        logo = trim_transparent_logo(logo)
 
         logo_mode = str(options.get("logo_mode", "stock") or "stock")
         logo_hex = str(options.get("logo_hex", "#FFFFFF") or "#FFFFFF")
 
-        # Optional recolor (match/hex) like universal template
         if logo_mode == "match":
-            poster_avg = bg.resize((1, 1), Image.LANCZOS).getpixel((0, 0))
+            poster_avg = bg.resize((1, 1), Image.Resampling.LANCZOS).getpixel((0, 0))
             color = poster_avg[:3]
             logo = _solid_color_logo(logo, color)
         elif logo_mode == "hex":
             color = _hex_to_rgb(logo_hex)
             logo = _solid_color_logo(logo, color)
 
-        # ------------------------------
-        # Bounding box (max W/H in px)
-        # ------------------------------
-        max_w = options.get("uniform_logo_max_w", 600)
-        max_h = options.get("uniform_logo_max_h", 240)
+        max_w = max(1, int(options.get("uniform_logo_max_w", int(W * 0.72))))
+        max_h = max(1, int(options.get("uniform_logo_max_h", int(H * 0.28))))
 
-        offset_x_pct = options.get("uniform_logo_offset_x", 0.5)
-        offset_y_pct = options.get("uniform_logo_offset_y", 0.78)
+        offset_x_pct = max(0.0, min(float(options.get("uniform_logo_offset_x", 0.5)), 1.0))
+        offset_y_pct = max(0.0, min(float(options.get("uniform_logo_offset_y", 0.78)), 1.0))
 
-        # Compute center of bounding box
         cx = int(W * offset_x_pct)
         cy = int(H * offset_y_pct)
 
-        # ------------------------------
-        # Auto-scaling (fit logo into bounding box)
-        # ------------------------------
         lw, lh = logo.size
+        scale = min(max_w / max(lw, 1), max_h / max(lh, 1))
 
-        scale = max_w / lw
-        if lh * scale > max_h:
-            scale = max_h / lh
-
-        # ------------------------------
-        # Override mode?
-        # ------------------------------
-        if options.get("uniform_logo_override_enabled", False):
-            scale = options.get("uniform_logo_override_scale", scale)
-            offset_y_pct = options.get("uniform_logo_override_offset_y", offset_y_pct)
+        # Modern editors use logo_scale. Preserve the older override controls for
+        # saved presets that still contain them.
+        if "logo_scale" in options:
+            scale *= max(0.05, min(float(options.get("logo_scale", 1.0)), 3.0))
+        elif options.get("uniform_logo_override_enabled", False):
+            scale = float(options.get("uniform_logo_override_scale", scale))
+            offset_y_pct = max(
+                0.0,
+                min(float(options.get("uniform_logo_override_offset_y", offset_y_pct)), 1.0),
+            )
             cy = int(H * offset_y_pct)
 
-        # Final logo size
-        new_w = int(lw * scale)
-        new_h = int(lh * scale)
-        logo_res = logo.resize((new_w, new_h), Image.LANCZOS)
+        new_w = max(1, int(round(lw * scale)))
+        new_h = max(1, int(round(lh * scale)))
+        logo_res = logo.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-        # Align logo within bounding box
-        h_align = options.get("uniform_logo_h_align", "center")
-        v_align = options.get("uniform_logo_v_align", "center")
+        h_align = str(options.get("uniform_logo_h_align", "center") or "center").lower()
+        v_align = str(options.get("uniform_logo_v_align", "center") or "center").lower()
 
         box_left = cx - max_w // 2
         box_right = cx + max_w // 2
@@ -83,26 +69,24 @@ def render_uniform_logo(bg: Image.Image, logo: Image.Image, options: dict) -> Im
             x = box_left
         elif h_align == "right":
             x = box_right - new_w
-        else:  # center
+        else:
             x = cx - new_w // 2
 
         if v_align == "top":
             y = box_top
         elif v_align == "bottom":
             y = box_bottom - new_h
-        else:  # center
+        else:
             y = cy - new_h // 2
 
         canvas.paste(logo_res, (x, y), logo_res)
 
-    # ------------- TEXT OVERLAY (outside logo check) -------------
     text_overlay_enabled = bool(options.get("text_overlay_enabled", False))
     if text_overlay_enabled:
         custom_text = str(options.get("custom_text", ""))
         if custom_text:
             canvas = _render_text_overlay(canvas, custom_text, options)
 
-    # Border?
     if options.get("border_enabled", False):
         px = options.get("border_px", 0)
         if px > 0:
@@ -110,7 +94,6 @@ def render_uniform_logo(bg: Image.Image, logo: Image.Image, options: dict) -> Im
             from PIL import ImageOps
             canvas = ImageOps.expand(canvas, border=px, fill=border_color)
 
-    # Apply overlay configurations
     from .universal import apply_overlay_config
     metadata = options.get("metadata", {})
     preset_id = options.get("preset_id")

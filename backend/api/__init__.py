@@ -5,6 +5,9 @@ from . import (
     templates,
     movies,
     tv_shows,
+    audiobooks,
+    audiobook_covers,
+    audiobook_settings,
     plexsend,
     preview,
     save,
@@ -31,6 +34,9 @@ router.include_router(presets.router)
 router.include_router(templates.router)
 router.include_router(movies.router)
 router.include_router(tv_shows.router)
+router.include_router(audiobooks.router)
+router.include_router(audiobook_covers.router)
+router.include_router(audiobook_settings.router)
 router.include_router(plexsend.router)
 router.include_router(preview.router)
 router.include_router(save.router)
