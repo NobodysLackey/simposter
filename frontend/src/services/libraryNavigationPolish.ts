@@ -168,10 +168,6 @@ const polishTitleJumps = async () => {
   const firstVisible = sorted[(currentPage - 1) * pageSize]
   const firstVisibleLabel = getStartLabel(firstVisible?.title)
 
-  if (clickedJump && clickedJump.page !== currentPage) {
-    clickedJump = null
-  }
-
   const activeLabel =
     clickedJump && clickedJump.page === currentPage && availableLetters.has(clickedJump.label)
       ? clickedJump.label
@@ -206,7 +202,6 @@ const start = () => {
   })
 
   router.afterEach(() => {
-    clickedJump = null
     schedule()
   })
 
