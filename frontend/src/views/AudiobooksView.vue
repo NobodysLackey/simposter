@@ -228,6 +228,13 @@ watch(() => route.query.library, async (libraryId) => {
   }
 })
 
+watch(() => route.query.page, (routePage) => {
+  if (!initialized.value) return
+  const requestedPage = Math.max(1, Number(routePage) || 1)
+  const nextPage = Math.min(requestedPage, totalPages.value)
+  if (nextPage !== page.value) page.value = nextPage
+})
+
 watch([page, sortBy, sortOrder], () => {
   if (selectedBook.value || !initialized.value) return
   const query: Record<string, string> = {}
