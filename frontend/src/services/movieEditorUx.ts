@@ -1,6 +1,5 @@
 const STYLE_ID = 'simposter-movie-editor-ux-styles'
 const LOGO_MAX_WIDTH = 3000
-const EDITOR_BOTTOM_GAP = 12
 
 const installStyles = () => {
   if (document.getElementById(STYLE_ID)) return
@@ -9,14 +8,24 @@ const installStyles = () => {
   style.id = STYLE_ID
   style.textContent = `
     @media (min-width: 901px) {
+      .workspace:has(.editor-shell) {
+        min-height: 0 !important;
+        height: var(--simposter-editor-workspace-height) !important;
+        flex: none !important;
+        overflow: hidden !important;
+      }
+
       .main-pane:has(.editor-shell) {
+        box-sizing: border-box !important;
+        min-height: 0 !important;
+        height: 100% !important;
         overflow: hidden !important;
       }
 
       .editor-shell {
         min-height: 0 !important;
-        max-height: var(--simposter-editor-available-height) !important;
-        height: var(--simposter-editor-available-height) !important;
+        max-height: 100% !important;
+        height: 100% !important;
       }
 
       .editor-shell .controls-sidebar,
@@ -54,18 +63,24 @@ const updateLogoWidthRange = () => {
   })
 }
 
-const fitEditorToViewport = () => {
+const fitEditorWorkspaceToViewport = () => {
   const shells = Array.from(document.querySelectorAll<HTMLElement>('.editor-shell'))
 
   shells.forEach((shell) => {
+    const workspace = shell.closest<HTMLElement>('.workspace')
+    if (!workspace) return
+
     if (window.innerWidth <= 900) {
-      shell.style.removeProperty('--simposter-editor-available-height')
+      workspace.style.removeProperty('--simposter-editor-workspace-height')
       return
     }
 
-    const top = shell.getBoundingClientRect().top
-    const availableHeight = Math.max(1, Math.floor(window.innerHeight - top - EDITOR_BOTTOM_GAP))
-    shell.style.setProperty('--simposter-editor-available-height', `${availableHeight}px`)
+    const viewportHeight = document.documentElement.clientHeight
+    const workspaceTop = workspace.getBoundingClientRect().top
+    const bodyBottomPadding = Number.parseFloat(getComputedStyle(document.body).paddingBottom) || 0
+    const availableHeight = Math.max(1, Math.floor(viewportHeight - workspaceTop - bodyBottomPadding))
+
+    workspace.style.setProperty('--simposter-editor-workspace-height', `${availableHeight}px`)
   })
 }
 
@@ -73,7 +88,7 @@ let scheduled = false
 const run = () => {
   scheduled = false
   updateLogoWidthRange()
-  fitEditorToViewport()
+  fitEditorWorkspaceToViewport()
 }
 
 const schedule = () => {
