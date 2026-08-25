@@ -13,14 +13,14 @@ type LibraryItem = {
   addedAt?: number | null
 }
 
-type JumpPoint = {
-  label: string
-  page: number
-}
-
 type GroupPoint = {
   label: string
   index: number
+}
+
+type JumpPoint = {
+  label: string
+  page: number
 }
 
 const STYLE_ID = 'simposter-library-navigation-styles'
@@ -36,33 +36,42 @@ let cacheVersion = 0
 let scheduled = false
 
 const installStyles = () => {
-  if (document.getElementById(STYLE_ID)) return
+  const existing = document.getElementById(STYLE_ID)
+  if (existing) existing.remove()
 
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
+    .main-pane > .view {
+      min-height: 100%;
+    }
+
     .toolbar.pagination.${FOOTER_CLASS} {
-      position: fixed !important;
-      bottom: 0;
-      z-index: 45;
+      position: static !important;
+      inset: auto !important;
+      width: 100% !important;
+      max-width: 100% !important;
       box-sizing: border-box;
-      margin: 0 !important;
-      padding: 9px 12px 10px !important;
+      margin: auto 0 0 !important;
+      padding: 10px 12px !important;
       display: flex;
       flex-direction: column;
       flex-wrap: nowrap;
       align-items: center;
       justify-content: center !important;
-      gap: 7px !important;
-      border-radius: 14px 14px 0 0;
-      background: rgba(17, 20, 30, 0.94);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.28);
+      gap: 8px !important;
+      flex-shrink: 0;
+      overflow: visible;
+      border-radius: 12px;
+      background: rgba(17, 20, 30, 0.72);
+      box-shadow: none;
     }
 
     .toolbar.pagination.${FOOTER_CLASS} .pager {
+      display: flex;
+      align-items: center;
       justify-content: center;
+      gap: 8px;
       flex-shrink: 0;
     }
 
@@ -74,48 +83,62 @@ const installStyles = () => {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
+      gap: 5px;
       width: 100%;
+      max-width: 100%;
       min-width: 0;
       flex-wrap: wrap;
+      overflow: visible;
+      pointer-events: auto;
     }
 
     .library-jump-btn {
-      min-width: 27px;
-      height: 25px;
+      position: relative;
+      z-index: 1;
+      min-width: 30px;
+      height: 28px;
       margin: 0 !important;
-      padding: 2px 7px !important;
-      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      padding: 3px 8px !important;
+      border: 1px solid rgba(255, 255, 255, 0.09) !important;
       border-radius: 7px !important;
-      background: rgba(255, 255, 255, 0.035) !important;
+      background: rgba(255, 255, 255, 0.04) !important;
       color: #cdd8f5 !important;
-      font-size: 11px !important;
+      font-size: 12px !important;
       font-weight: 650;
       line-height: 1 !important;
-      cursor: pointer;
+      cursor: pointer !important;
       white-space: nowrap;
+      pointer-events: auto !important;
+      transition: background .16s ease, border-color .16s ease, color .16s ease;
     }
 
-    .library-jump-btn:hover,
+    .library-jump-btn:hover {
+      color: var(--accent) !important;
+      background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+      border-color: color-mix(in srgb, var(--accent) 32%, var(--border)) !important;
+    }
+
     .library-jump-btn[data-current='true'] {
       color: var(--accent) !important;
-      background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
-      border-color: color-mix(in srgb, var(--accent) 30%, var(--border)) !important;
+      border-color: color-mix(in srgb, var(--accent) 26%, var(--border)) !important;
+      background: color-mix(in srgb, var(--accent) 7%, transparent) !important;
     }
 
     @media (max-width: 600px) {
       .toolbar.pagination.${FOOTER_CLASS} {
-        padding: 7px 8px 8px !important;
-        gap: 5px !important;
+        padding: 8px !important;
+        gap: 6px !important;
       }
 
-      .${JUMP_CLASS} { gap: 3px; }
+      .${JUMP_CLASS} {
+        gap: 4px;
+      }
 
       .library-jump-btn {
-        min-width: 24px;
-        height: 23px;
-        padding: 2px 5px !important;
-        font-size: 10px !important;
+        min-width: 27px;
+        height: 26px;
+        padding: 3px 6px !important;
+        font-size: 11px !important;
       }
     }
   `
@@ -190,7 +213,8 @@ const fetchItems = (kind: LibraryKind, libraryId: string) => {
             ? '/api/audiobooks'
             : '/api/movies'
 
-      const response = await fetch(`${apiBase}${path}${params.size ? `?${params.toString()}` : ''}`)
+      const query = params.toString()
+      const response = await fetch(`${apiBase}${path}${query ? `?${query}` : ''}`)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
       const data: unknown = await response.json()
@@ -258,8 +282,10 @@ const titleJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
   items.forEach((item, index) => {
     const first = String(item.title || '').trim().charAt(0).toUpperCase()
     if (!first) return
+
     const label = /^[A-Z]$/.test(first) ? first : '#'
     if (seen.has(label)) return
+
     seen.add(label)
     groups.push({ label, index })
   })
@@ -274,6 +300,7 @@ const yearJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
   items.forEach((item, index) => {
     const year = Number(item.year)
     if (!Number.isFinite(year) || year <= 0 || seen.has(year)) return
+
     seen.add(year)
     groups.push({ label: String(year), index })
   })
@@ -284,6 +311,7 @@ const yearJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
 const toDate = (value: number | null | undefined) => {
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric <= 0) return null
+
   const milliseconds = numeric < 10_000_000_000 ? numeric * 1000 : numeric
   const date = new Date(milliseconds)
   return Number.isNaN(date.getTime()) ? null : date
@@ -329,6 +357,7 @@ const dateJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
     }
 
     if (seen.has(key)) return
+
     seen.add(key)
     groups.push({ label, index })
   })
@@ -342,14 +371,32 @@ const buildJumps = (items: LibraryItem[], field: SortField, pageSize: number) =>
   return dateJumps(items, pageSize)
 }
 
-const jumpToPage = (page: number) => {
-  const route = router.currentRoute.value
-  const query = { ...route.query }
+const getCurrentPageFromPager = () => {
+  const text = document.querySelector<HTMLElement>('.view > .toolbar.pagination .pager span')?.textContent || ''
+  const match = text.match(/(\d+)\s*\/\s*(\d+)/)
+  return match ? Number(match[1]) : 1
+}
 
-  if (page <= 1) delete query.page
-  else query.page = String(page)
+const jumpToPage = (targetPage: number) => {
+  const pager = document.querySelector<HTMLElement>('.view > .toolbar.pagination .pager')
+  if (!pager) return
 
-  void router.push({ path: route.path, query, hash: route.hash })
+  const buttons = Array.from(pager.querySelectorAll<HTMLButtonElement>('button'))
+  if (buttons.length < 2) return
+
+  const currentPage = getCurrentPageFromPager()
+  const delta = targetPage - currentPage
+  if (delta === 0) return
+
+  const button = delta > 0 ? buttons[buttons.length - 1] : buttons[0]
+  const steps = Math.abs(delta)
+
+  for (let step = 0; step < steps; step += 1) {
+    if (button.disabled) break
+    button.click()
+  }
+
+  window.requestAnimationFrame(scheduleEnhance)
 }
 
 const renderJumps = (
@@ -375,32 +422,15 @@ const renderJumps = (
     button.textContent = label
     button.title = `Jump to ${label}`
     button.dataset.current = page === currentPage ? 'true' : 'false'
-    button.addEventListener('click', () => jumpToPage(page))
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      jumpToPage(page)
+    })
     strip.appendChild(button)
   })
 
   footer.appendChild(strip)
-}
-
-const layoutFooter = (footer?: HTMLElement | null) => {
-  const target = footer || document.querySelector<HTMLElement>(`.toolbar.pagination.${FOOTER_CLASS}`)
-  if (!target?.isConnected) return
-
-  const view = target.closest<HTMLElement>('.view')
-  if (!view) return
-
-  const rect = view.getBoundingClientRect()
-  const left = Math.max(0, rect.left)
-  const width = Math.max(0, Math.min(rect.width, window.innerWidth - left))
-
-  target.style.left = `${left}px`
-  target.style.width = `${width}px`
-  target.style.right = 'auto'
-
-  window.requestAnimationFrame(() => {
-    if (!target.isConnected || !view.isConnected) return
-    view.style.paddingBottom = `${target.getBoundingClientRect().height + 16}px`
-  })
 }
 
 const searchOrFilterActive = () => {
@@ -417,19 +447,17 @@ const enhance = async () => {
   if (!kind || !footer) return
 
   footer.classList.add(FOOTER_CLASS)
-  layoutFooter(footer)
 
   const libraryId = getLibraryId(kind)
   const { field, order } = getSort(kind)
   const pageSize = Math.max(1, Number(settings.posterDensity.value) || 20)
-  const currentPage = Math.max(1, Number(router.currentRoute.value.query.page) || 1)
-
+  const currentPage = getCurrentPageFromPager()
   const signature = [kind, libraryId, field, order, pageSize, currentPage, cacheVersion].join('|')
+
   footer.dataset.libraryNavSignature = signature
 
   if (searchOrFilterActive()) {
     footer.querySelector(`.${JUMP_CLASS}`)?.remove()
-    layoutFooter(footer)
     return
   }
 
@@ -438,10 +466,9 @@ const enhance = async () => {
 
   const sorted = sortItems(items, field, order)
   renderJumps(footer, buildJumps(sorted, field, pageSize), currentPage, field)
-  layoutFooter(footer)
 }
 
-const scheduleEnhance = () => {
+function scheduleEnhance() {
   if (scheduled) return
   scheduled = true
   window.requestAnimationFrame(() => void enhance())
@@ -451,11 +478,14 @@ const start = () => {
   installStyles()
   scheduleEnhance()
 
-  const observer = new MutationObserver(scheduleEnhance)
-  observer.observe(document.body, { childList: true, subtree: true })
+  const observer = new MutationObserver(() => scheduleEnhance())
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  })
 
-  router.afterEach(scheduleEnhance)
-  window.addEventListener('resize', () => layoutFooter())
+  router.afterEach(() => scheduleEnhance())
 
   window.addEventListener('simposter:libraries-rescanned', () => {
     invalidate()
@@ -463,28 +493,27 @@ const start = () => {
   })
 
   document.addEventListener('input', (event) => {
-    if (event.target instanceof HTMLInputElement && event.target.matches('.search-container input')) {
+    const target = event.target
+    if (target instanceof HTMLInputElement && target.matches('.search-container input')) {
       scheduleEnhance()
     }
   })
 
   document.addEventListener('change', (event) => {
-    if (event.target instanceof HTMLSelectElement && event.target.id === 'audiobook-library') {
+    const target = event.target
+    if (target instanceof HTMLSelectElement && target.id === 'audiobook-library') {
       invalidate()
       scheduleEnhance()
     }
   })
 
   document.addEventListener('click', (event) => {
-    if (!(event.target instanceof Element)) return
+    const target = event.target
+    if (!(target instanceof Element)) return
 
-    if (event.target.closest('.refresh-btn')) {
+    if (target.closest('.refresh-btn')) {
       invalidate()
       window.setTimeout(scheduleEnhance, 250)
-    }
-
-    if (event.target.closest('.collapse-btn')) {
-      window.setTimeout(() => layoutFooter(), 240)
     }
   })
 
