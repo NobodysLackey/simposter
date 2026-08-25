@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Simposter Docker Build Script
 # Automatically captures current git branch and passes it to the Docker build
