@@ -64,7 +64,7 @@ const fitEditorToViewport = () => {
     }
 
     const top = shell.getBoundingClientRect().top
-    const availableHeight = Math.max(420, Math.floor(window.innerHeight - top - EDITOR_BOTTOM_GAP))
+    const availableHeight = Math.max(1, Math.floor(window.innerHeight - top - EDITOR_BOTTOM_GAP))
     shell.style.setProperty('--simposter-editor-available-height', `${availableHeight}px`)
   })
 }
