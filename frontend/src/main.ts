@@ -7,6 +7,7 @@ import './services/manualLogoUpload'
 import './services/logoPlacementDomUx'
 import './services/sidebarLibraryRescan'
 import './services/libraryNavigationUx'
+import './services/libraryNavigationPolish'
 import './services/synthwaveTheme'
 
 import { createApp } from 'vue'
