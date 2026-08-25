@@ -6,7 +6,7 @@ import './services/audiobookSecondaryCovers'
 import './services/manualLogoUpload'
 import './services/logoPlacementDomUx'
 import './services/sidebarLibraryRescan'
-import './services/libraryNavigationDomUx'
+import './services/libraryNavigationUx'
 import './services/synthwaveTheme'
 
 import { createApp } from 'vue'
