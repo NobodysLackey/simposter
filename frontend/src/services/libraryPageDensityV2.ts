@@ -8,6 +8,11 @@ type LibraryOption = {
   label: string
 }
 
+type PageLayout = {
+  mode: 'auto' | 'manual'
+  manualSize: number
+}
+
 type AudiobookSettingsPayload = {
   library_mappings?: Array<{
     id?: string | number
@@ -17,11 +22,12 @@ type AudiobookSettingsPayload = {
   }>
 }
 
-const STORAGE_KEY = 'simposter-library-page-sizes-v1'
+const STORAGE_KEY = 'simposter-library-page-layout-v2'
 const PANEL_ID = 'simposter-library-page-density-panel'
 const STYLE_ID = 'simposter-library-page-density-v2-styles'
-const MIN_PAGE_SIZE = 10
+const MIN_MANUAL_PAGE_SIZE = 4
 const MAX_PAGE_SIZE = 100
+const FIT_SAFETY_PX = 3
 
 const settings = useSettingsStore()
 const apiBase = getApiBase()
@@ -29,25 +35,29 @@ const apiBase = getApiBase()
 let scheduled = false
 let audiobookOptions: LibraryOption[] = []
 let audiobookOptionsLoaded = false
-let pageSizes: Record<string, number> = {}
+let layouts: Record<string, PageLayout> = {}
+let lastAppliedKey = ''
+let lastAppliedSize = 0
 
 const normalizePageSize = (value: unknown, fallback = 20) => {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return fallback
-  return Math.max(MIN_PAGE_SIZE, Math.min(MAX_PAGE_SIZE, Math.round(numeric)))
+  return Math.max(MIN_MANUAL_PAGE_SIZE, Math.min(MAX_PAGE_SIZE, Math.round(numeric)))
 }
 
-const loadPageSizes = () => {
+const loadLayouts = (): Record<string, PageLayout> => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
     const parsed = JSON.parse(raw) as Record<string, unknown>
-    const result: Record<string, number> = {}
+    const result: Record<string, PageLayout> = {}
 
     Object.entries(parsed).forEach(([key, value]) => {
-      const numeric = Number(value)
-      if (Number.isFinite(numeric) && numeric >= MIN_PAGE_SIZE && numeric <= MAX_PAGE_SIZE) {
-        result[key] = Math.round(numeric)
+      if (!value || typeof value !== 'object') return
+      const candidate = value as Partial<PageLayout>
+      result[key] = {
+        mode: candidate.mode === 'manual' ? 'manual' : 'auto',
+        manualSize: normalizePageSize(candidate.manualSize, 20),
       }
     })
 
@@ -57,17 +67,32 @@ const loadPageSizes = () => {
   }
 }
 
-const persistPageSizes = () => {
+const persistLayouts = () => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(pageSizes))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(layouts))
   } catch {
     /* ignore localStorage failures */
   }
 }
 
-pageSizes = loadPageSizes()
+layouts = loadLayouts()
 
-const getFallbackPageSize = () => normalizePageSize(settings.posterDensity.value, 20)
+const fallbackPageSize = () => normalizePageSize(settings.posterDensity.value, 20)
+
+const ensureLayout = (key: string): PageLayout => {
+  if (!layouts[key]) {
+    layouts = {
+      ...layouts,
+      [key]: {
+        mode: 'auto',
+        manualSize: fallbackPageSize(),
+      },
+    }
+    persistLayouts()
+  }
+
+  return layouts[key]!
+}
 
 const movieAndTvOptions = (): LibraryOption[] => {
   const options: LibraryOption[] = []
@@ -113,17 +138,19 @@ const loadAudiobookOptions = async () => {
 
 const allOptions = () => [...movieAndTvOptions(), ...audiobookOptions]
 
-const seedMissingPageSizes = (options: LibraryOption[]) => {
-  const fallback = getFallbackPageSize()
+const seedMissingLayouts = (options: LibraryOption[]) => {
   let changed = false
 
   options.forEach((option) => {
-    if (pageSizes[option.key] !== undefined) return
-    pageSizes[option.key] = fallback
+    if (layouts[option.key]) return
+    layouts[option.key] = {
+      mode: 'auto',
+      manualSize: fallbackPageSize(),
+    }
     changed = true
   })
 
-  if (changed) persistPageSizes()
+  if (changed) persistLayouts()
 }
 
 const currentLibraryKey = (): string | null => {
@@ -152,19 +179,68 @@ const currentLibraryKey = (): string | null => {
   return null
 }
 
+const getColumnCount = (grid: HTMLElement) => {
+  const template = getComputedStyle(grid).gridTemplateColumns.trim()
+  if (!template || template === 'none') return 0
+
+  // Browsers expose the resolved auto-fill tracks here as pixel values.
+  return template.split(/\s+/).filter(Boolean).length
+}
+
+const getRepresentativeRowHeight = (grid: HTMLElement) => {
+  const cards = Array.from(grid.children).filter((child): child is HTMLElement => child instanceof HTMLElement)
+  if (!cards.length) return 0
+
+  // Grid rows can grow slightly when a title wraps. Using the tallest rendered
+  // card keeps auto-fit conservative enough to avoid a one-pixel overflow.
+  return Math.max(...cards.map((card) => card.getBoundingClientRect().height))
+}
+
+const calculateAutoPageSize = () => {
+  const view = document.querySelector<HTMLElement>('.main-pane > .view')
+  const gridBlock = view?.querySelector<HTMLElement>(':scope > .grid-block')
+  const grid = gridBlock?.querySelector<HTMLElement>(':scope > .grid')
+  if (!view || !gridBlock || !grid) return null
+
+  const columns = getColumnCount(grid)
+  const rowHeight = getRepresentativeRowHeight(grid)
+  if (columns < 1 || rowHeight <= 0) return null
+
+  const gridBlockRect = gridBlock.getBoundingClientRect()
+  const gridRect = grid.getBoundingClientRect()
+  const availableHeight = Math.max(0, gridBlockRect.bottom - gridRect.top - FIT_SAFETY_PX)
+  const rowGap = Number.parseFloat(getComputedStyle(grid).rowGap) || 0
+  const rows = Math.max(1, Math.floor((availableHeight + rowGap) / (rowHeight + rowGap)))
+
+  return Math.max(columns, Math.min(MAX_PAGE_SIZE, columns * rows))
+}
+
+const applyPageSize = (key: string, value: number) => {
+  const normalized = normalizePageSize(value, fallbackPageSize())
+  if (lastAppliedKey === key && lastAppliedSize === normalized && settings.posterDensity.value === normalized) {
+    return
+  }
+
+  lastAppliedKey = key
+  lastAppliedSize = normalized
+
+  if (settings.posterDensity.value !== normalized) {
+    settings.posterDensity.value = normalized
+  }
+}
+
 const applyCurrentLibraryPageSize = () => {
   const key = currentLibraryKey()
   if (!key) return
 
-  if (pageSizes[key] === undefined) {
-    pageSizes[key] = getFallbackPageSize()
-    persistPageSizes()
+  const layout = ensureLayout(key)
+  if (layout.mode === 'manual') {
+    applyPageSize(key, layout.manualSize)
+    return
   }
 
-  const next = pageSizes[key]!
-  if (settings.posterDensity.value !== next) {
-    settings.posterDensity.value = next
-  }
+  const fitted = calculateAutoPageSize()
+  if (fitted) applyPageSize(key, fitted)
 }
 
 const findOriginalDensityLabel = () => {
@@ -178,7 +254,8 @@ const findOriginalDensityLabel = () => {
 }
 
 const createDensityRow = (option: LibraryOption) => {
-  const row = document.createElement('label')
+  const layout = ensureLayout(option.key)
+  const row = document.createElement('div')
   row.className = 'simposter-library-density-row'
 
   const header = document.createElement('div')
@@ -188,33 +265,61 @@ const createDensityRow = (option: LibraryOption) => {
   name.textContent = option.label
 
   const valueText = document.createElement('strong')
-  const initialValue = pageSizes[option.key] ?? getFallbackPageSize()
-  valueText.textContent = String(initialValue)
+  valueText.textContent = layout.mode === 'auto' ? 'Auto-fit' : String(layout.manualSize)
 
   header.append(name, valueText)
 
+  const autoLabel = document.createElement('label')
+  autoLabel.className = 'simposter-library-density-auto'
+
+  const autoCheckbox = document.createElement('input')
+  autoCheckbox.type = 'checkbox'
+  autoCheckbox.checked = layout.mode === 'auto'
+
+  const autoText = document.createElement('span')
+  autoText.textContent = 'Automatically fill available space'
+  autoLabel.append(autoCheckbox, autoText)
+
   const range = document.createElement('input')
   range.type = 'range'
-  range.min = String(MIN_PAGE_SIZE)
+  range.min = String(MIN_MANUAL_PAGE_SIZE)
   range.max = String(MAX_PAGE_SIZE)
   range.step = '1'
-  range.value = String(initialValue)
+  range.value = String(layout.manualSize)
+  range.disabled = layout.mode === 'auto'
   range.dataset.libraryDensityKey = option.key
 
-  const saveValue = (event: Event) => {
+  autoCheckbox.addEventListener('change', (event) => {
     event.stopPropagation()
+    const current = ensureLayout(option.key)
+    const mode: PageLayout['mode'] = autoCheckbox.checked ? 'auto' : 'manual'
+    layouts = { ...layouts, [option.key]: { ...current, mode } }
+    persistLayouts()
 
-    const value = normalizePageSize(range.value, initialValue)
-    range.value = String(value)
-    valueText.textContent = String(value)
-    pageSizes = { ...pageSizes, [option.key]: value }
-    persistPageSizes()
+    range.disabled = mode === 'auto'
+    valueText.textContent = mode === 'auto' ? 'Auto-fit' : String(current.manualSize)
+
+    if (currentLibraryKey() === option.key) schedule()
+  })
+
+  const saveManualValue = (event: Event) => {
+    event.stopPropagation()
+    const current = ensureLayout(option.key)
+    const manualSize = normalizePageSize(range.value, current.manualSize)
+    range.value = String(manualSize)
+    layouts = { ...layouts, [option.key]: { ...current, manualSize } }
+    persistLayouts()
+
+    if (!autoCheckbox.checked) {
+      valueText.textContent = String(manualSize)
+      if (currentLibraryKey() === option.key) applyPageSize(option.key, manualSize)
+    }
   }
 
-  range.addEventListener('input', saveValue)
-  range.addEventListener('change', saveValue)
+  range.addEventListener('input', saveManualValue)
+  range.addEventListener('change', saveManualValue)
 
-  row.append(header, range)
+  row.append(header, autoLabel, range)
   return row
 }
 
@@ -231,10 +336,13 @@ const ensureSettingsPanel = async () => {
   const options = allOptions()
   if (!options.length) return
 
-  seedMissingPageSizes(options)
+  seedMissingLayouts(options)
 
   const signature = options
-    .map((option) => `${option.key}:${option.label}:${pageSizes[option.key]}`)
+    .map((option) => {
+      const layout = ensureLayout(option.key)
+      return `${option.key}:${option.label}:${layout.mode}:${layout.manualSize}`
+    })
     .join('|')
 
   const existing = document.getElementById(PANEL_ID)
@@ -257,7 +365,7 @@ const ensureSettingsPanel = async () => {
 
   const help = document.createElement('div')
   help.className = 'simposter-library-density-help'
-  help.textContent = 'Each library has its own independent page size.'
+  help.textContent = 'Auto-fit uses the current window, sidebar width, card shape, and available grid height. Disable it for any library you want to size manually.'
 
   panel.append(title)
   options.forEach((option) => panel.append(createDensityRow(option)))
@@ -275,9 +383,9 @@ const installStyles = () => {
     .simposter-library-density-panel {
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 15px;
       margin-bottom: 18px;
-      max-width: 520px;
+      max-width: 560px;
     }
 
     .simposter-library-density-title {
@@ -287,10 +395,11 @@ const installStyles = () => {
     }
 
     .simposter-library-density-row {
-      display: flex !important;
+      display: flex;
       flex-direction: column;
-      gap: 7px !important;
-      margin: 0 !important;
+      gap: 7px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     }
 
     .simposter-library-density-header {
@@ -298,7 +407,7 @@ const installStyles = () => {
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      max-width: 400px;
+      max-width: 440px;
       color: var(--text-primary);
       font-size: 13px;
     }
@@ -308,14 +417,35 @@ const installStyles = () => {
       font-variant-numeric: tabular-nums;
     }
 
+    .simposter-library-density-auto {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center;
+      gap: 8px !important;
+      margin: 0 !important;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .simposter-library-density-auto input {
+      margin: 0;
+    }
+
     .simposter-library-density-row input[type='range'] {
       width: 100%;
-      max-width: 400px;
+      max-width: 440px;
+    }
+
+    .simposter-library-density-row input[type='range']:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
     }
 
     .simposter-library-density-help {
       color: var(--text-muted);
       font-size: 12px;
+      max-width: 520px;
     }
   `
 
@@ -338,15 +468,41 @@ const start = () => {
   installStyles()
   schedule()
 
-  router.afterEach(() => schedule())
+  router.afterEach(() => {
+    lastAppliedKey = ''
+    lastAppliedSize = 0
+    schedule()
+  })
 
   const observer = new MutationObserver(() => schedule())
   observer.observe(document.body, { childList: true, subtree: true })
 
+  if ('ResizeObserver' in window) {
+    const resizeObserver = new ResizeObserver(() => schedule())
+    const observeLayoutTargets = () => {
+      const gridBlock = document.querySelector<HTMLElement>('.main-pane > .view > .grid-block')
+      const mainPane = document.querySelector<HTMLElement>('.main-pane')
+      if (gridBlock) resizeObserver.observe(gridBlock)
+      if (mainPane) resizeObserver.observe(mainPane)
+    }
+    observeLayoutTargets()
+    window.setInterval(observeLayoutTargets, 1000)
+  }
+
+  window.addEventListener('resize', schedule)
+
   document.addEventListener('change', (event) => {
     const target = event.target
     if (target instanceof HTMLSelectElement && target.id === 'audiobook-library') {
+      lastAppliedKey = ''
       window.setTimeout(schedule, 0)
+    }
+  })
+
+  document.addEventListener('click', (event) => {
+    const target = event.target
+    if (target instanceof Element && target.closest('.collapse-btn')) {
+      window.setTimeout(schedule, 240)
     }
   })
 
