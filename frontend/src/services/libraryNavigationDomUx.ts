@@ -13,14 +13,14 @@ type LibraryItem = {
   addedAt?: number | null
 }
 
-type GroupPoint = {
-  label: string
-  index: number
-}
-
 type JumpPoint = {
   label: string
   page: number
+}
+
+type GroupPoint = {
+  label: string
+  index: number
 }
 
 const STYLE_ID = 'simposter-library-navigation-styles'
@@ -33,7 +33,7 @@ const settings = useSettingsStore()
 const itemCache = new Map<string, Promise<LibraryItem[]>>()
 
 let cacheVersion = 0
-let enhanceScheduled = false
+let scheduled = false
 
 const installStyles = () => {
   if (document.getElementById(STYLE_ID)) return
@@ -48,8 +48,10 @@ const installStyles = () => {
       box-sizing: border-box;
       margin: 0 !important;
       padding: 9px 12px 10px !important;
+      display: flex;
       flex-direction: column;
       flex-wrap: nowrap;
+      align-items: center;
       justify-content: center !important;
       gap: 7px !important;
       border-radius: 14px 14px 0 0;
@@ -92,19 +94,13 @@ const installStyles = () => {
       line-height: 1 !important;
       cursor: pointer;
       white-space: nowrap;
-      transition: background .16s ease, border-color .16s ease, color .16s ease;
     }
 
-    .library-jump-btn:hover {
-      color: var(--accent) !important;
-      background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
-      border-color: color-mix(in srgb, var(--accent) 32%, var(--border)) !important;
-    }
-
+    .library-jump-btn:hover,
     .library-jump-btn[data-current='true'] {
       color: var(--accent) !important;
-      border-color: color-mix(in srgb, var(--accent) 28%, var(--border)) !important;
-      background: color-mix(in srgb, var(--accent) 7%, transparent) !important;
+      background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
+      border-color: color-mix(in srgb, var(--accent) 30%, var(--border)) !important;
     }
 
     @media (max-width: 600px) {
@@ -113,9 +109,7 @@ const installStyles = () => {
         gap: 5px !important;
       }
 
-      .${JUMP_CLASS} {
-        gap: 3px;
-      }
+      .${JUMP_CLASS} { gap: 3px; }
 
       .library-jump-btn {
         min-width: 24px;
@@ -128,7 +122,7 @@ const installStyles = () => {
   document.head.appendChild(style)
 }
 
-const getLibraryKind = (): LibraryKind | null => {
+const getKind = (): LibraryKind | null => {
   const routeName = String(router.currentRoute.value.name || '')
   if (routeName === 'movies') return 'movies'
   if (routeName === 'tv-shows') return 'tv-shows'
@@ -137,8 +131,8 @@ const getLibraryKind = (): LibraryKind | null => {
 }
 
 const getLibraryId = (kind: LibraryKind) => {
-  const queryLibrary = String(router.currentRoute.value.query.library || '')
-  if (queryLibrary) return queryLibrary
+  const queryId = String(router.currentRoute.value.query.library || '')
+  if (queryId) return queryId
 
   if (kind === 'audiobooks') {
     return document.querySelector<HTMLSelectElement>('#audiobook-library')?.value || ''
@@ -147,66 +141,62 @@ const getLibraryId = (kind: LibraryKind) => {
   return kind === 'tv-shows' ? 'default' : ''
 }
 
-const getSort = (kind: LibraryKind): { sortBy: SortField; sortOrder: SortOrder } => {
-  const route = router.currentRoute.value
+const getSort = (kind: LibraryKind): { field: SortField; order: SortOrder } => {
+  const query = router.currentRoute.value.query
 
   if (kind === 'audiobooks') {
     return {
-      sortBy: (route.query.sortBy as SortField) || 'title',
-      sortOrder: (route.query.sortOrder as SortOrder) || 'asc',
+      field: (query.sortBy as SortField) || 'title',
+      order: (query.sortOrder as SortOrder) || 'asc',
     }
   }
 
-  const [defaultField = 'title', defaultOrder = 'asc'] = String(
+  const [rawField = 'title', rawOrder = 'asc'] = String(
     settings.defaultSort.value || 'title-asc',
   ).split('-')
 
-  const normalizedDefaultField: SortField =
-    defaultField === 'added' ? 'addedAt' :
-    defaultField === 'year' ? 'year' :
-    'title'
+  const defaultField: SortField =
+    rawField === 'added' ? 'addedAt' : rawField === 'year' ? 'year' : 'title'
 
   return {
-    sortBy: (route.query.sortBy as SortField) || normalizedDefaultField,
-    sortOrder: (route.query.sortOrder as SortOrder) || (defaultOrder === 'desc' ? 'desc' : 'asc'),
+    field: (query.sortBy as SortField) || defaultField,
+    order: (query.sortOrder as SortOrder) || (rawOrder === 'desc' ? 'desc' : 'asc'),
   }
 }
 
-const getSearchActive = () => {
-  const input = document.querySelector<HTMLInputElement>('.search-container input')
-  return Boolean(input?.value.trim())
-}
-
-const invalidateItems = () => {
+const invalidate = () => {
   itemCache.clear()
   cacheVersion += 1
 }
 
-const getItems = (kind: LibraryKind, libraryId: string): Promise<LibraryItem[]> => {
-  const deduplicate = kind === 'movies' && settings.deduplicateMovies.value
-  const cacheKey = `${kind}|${libraryId}|${deduplicate ? 'dedupe' : 'all'}|${cacheVersion}`
-  const existing = itemCache.get(cacheKey)
-  if (existing) return existing
+const fetchItems = (kind: LibraryKind, libraryId: string) => {
+  const dedupe = kind === 'movies' && settings.deduplicateMovies.value
+  const cacheKey = `${kind}|${libraryId}|${dedupe}|${cacheVersion}`
+  const cached = itemCache.get(cacheKey)
+  if (cached) return cached
 
-  const request = (async () => {
+  const request = (async (): Promise<LibraryItem[]> => {
     try {
-      const params = new URLSearchParams()
-      if (libraryId) params.set('library_id', libraryId)
-      if (deduplicate) params.set('deduplicate', 'true')
-
-      let path = '/api/movies'
-      if (kind === 'tv-shows') path = '/api/tv-shows'
-      if (kind === 'audiobooks') path = '/api/audiobooks'
-
       if (kind === 'audiobooks' && !libraryId) return []
 
-      const response = await fetch(`${apiBase}${path}${params.toString() ? `?${params}` : ''}`)
+      const params = new URLSearchParams()
+      if (libraryId) params.set('library_id', libraryId)
+      if (dedupe) params.set('deduplicate', 'true')
+
+      const path =
+        kind === 'tv-shows'
+          ? '/api/tv-shows'
+          : kind === 'audiobooks'
+            ? '/api/audiobooks'
+            : '/api/movies'
+
+      const response = await fetch(`${apiBase}${path}${params.size ? `?${params.toString()}` : ''}`)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
-      const data = await response.json()
-      return Array.isArray(data) ? data : []
-    } catch (cause) {
-      console.warn('[LibraryNavigation] Failed to load jump navigation data:', cause)
+      const data: unknown = await response.json()
+      return Array.isArray(data) ? (data as LibraryItem[]) : []
+    } catch (error) {
+      console.warn('[LibraryNavigation] Could not load jump data:', error)
       return []
     }
   })()
@@ -215,22 +205,24 @@ const getItems = (kind: LibraryKind, libraryId: string): Promise<LibraryItem[]> 
   return request
 }
 
-const sortItems = (items: LibraryItem[], sortBy: SortField, sortOrder: SortOrder) => {
+const sortItems = (items: LibraryItem[], field: SortField, order: SortOrder) => {
   const list = [...items]
-  const multiplier = sortOrder === 'asc' ? 1 : -1
+  const multiplier = order === 'asc' ? 1 : -1
 
-  if (sortBy === 'title') {
-    list.sort((a, b) => multiplier * String(a.title || '').localeCompare(String(b.title || '')))
-  } else if (sortBy === 'year') {
-    list.sort((a, b) => multiplier * ((Number(a.year) || 0) - (Number(b.year) || 0)))
-  } else {
-    list.sort((a, b) => multiplier * ((Number(a.addedAt) || 0) - (Number(b.addedAt) || 0)))
-  }
+  list.sort((a, b) => {
+    if (field === 'title') {
+      return multiplier * String(a.title || '').localeCompare(String(b.title || ''))
+    }
+    if (field === 'year') {
+      return multiplier * ((Number(a.year) || 0) - (Number(b.year) || 0))
+    }
+    return multiplier * ((Number(a.addedAt) || 0) - (Number(b.addedAt) || 0))
+  })
 
   return list
 }
 
-const sampleGroups = (groups: GroupPoint[], max = MAX_CONTEXT_JUMPS) => {
+const sampleGroups = (groups: GroupPoint[], max = MAX_CONTEXT_JUMPS): GroupPoint[] => {
   if (groups.length <= max) return groups
 
   const indexes = new Set<number>()
@@ -240,30 +232,26 @@ const sampleGroups = (groups: GroupPoint[], max = MAX_CONTEXT_JUMPS) => {
 
   return Array.from(indexes)
     .sort((a, b) => a - b)
-    .map((index) => groups[index])
+    .map((index) => groups[index]!)
 }
 
-const groupToJumps = (
-  groups: GroupPoint[],
-  pageSize: number,
-  deduplicatePages = false,
-): JumpPoint[] => {
-  const jumps = groups.map((group) => ({
-    label: group.label,
-    page: Math.floor(group.index / pageSize) + 1,
+const groupsToJumps = (groups: GroupPoint[], pageSize: number, uniquePages = false) => {
+  const jumps = groups.map(({ label, index }) => ({
+    label,
+    page: Math.floor(index / pageSize) + 1,
   }))
 
-  if (!deduplicatePages) return jumps
+  if (!uniquePages) return jumps
 
-  const seenPages = new Set<number>()
-  return jumps.filter((jump) => {
-    if (seenPages.has(jump.page)) return false
-    seenPages.add(jump.page)
+  const pages = new Set<number>()
+  return jumps.filter(({ page }) => {
+    if (pages.has(page)) return false
+    pages.add(page)
     return true
   })
 }
 
-const buildTitleJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
+const titleJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
   const groups: GroupPoint[] = []
   const seen = new Set<string>()
 
@@ -276,10 +264,10 @@ const buildTitleJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] =>
     groups.push({ label, index })
   })
 
-  return groupToJumps(groups, pageSize)
+  return groupsToJumps(groups, pageSize)
 }
 
-const buildYearJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
+const yearJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
   const groups: GroupPoint[] = []
   const seen = new Set<number>()
 
@@ -290,7 +278,7 @@ const buildYearJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => 
     groups.push({ label: String(year), index })
   })
 
-  return groupToJumps(sampleGroups(groups), pageSize, true)
+  return groupsToJumps(sampleGroups(groups), pageSize, true)
 }
 
 const toDate = (value: number | null | undefined) => {
@@ -301,22 +289,21 @@ const toDate = (value: number | null | undefined) => {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-const getWeekStart = (date: Date) => {
-  const copy = new Date(date)
-  copy.setHours(0, 0, 0, 0)
-  const mondayOffset = (copy.getDay() + 6) % 7
-  copy.setDate(copy.getDate() - mondayOffset)
-  return copy
+const mondayOf = (date: Date) => {
+  const result = new Date(date)
+  result.setHours(0, 0, 0, 0)
+  result.setDate(result.getDate() - ((result.getDay() + 6) % 7))
+  return result
 }
 
-const buildDateAddedJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
-  const validDates = items
+const dateJumps = (items: LibraryItem[], pageSize: number): JumpPoint[] => {
+  const dated = items
     .map((item) => toDate(item.addedAt))
-    .filter((date): date is Date => Boolean(date))
+    .filter((date): date is Date => date !== null)
 
-  if (!validDates.length) return []
+  if (!dated.length) return []
 
-  const times = validDates.map((date) => date.getTime())
+  const times = dated.map((date) => date.getTime())
   const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000
   const mode: 'week' | 'month' | 'year' = spanDays <= 120 ? 'week' : spanDays <= 730 ? 'month' : 'year'
   const groups: GroupPoint[] = []
@@ -326,13 +313,13 @@ const buildDateAddedJumps = (items: LibraryItem[], pageSize: number): JumpPoint[
     const date = toDate(item.addedAt)
     if (!date) return
 
-    let key = ''
-    let label = ''
+    let key: string
+    let label: string
 
     if (mode === 'week') {
-      const week = getWeekStart(date)
-      key = `${week.getFullYear()}-${week.getMonth()}-${week.getDate()}`
-      label = week.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      const monday = mondayOf(date)
+      key = `${monday.getFullYear()}-${monday.getMonth()}-${monday.getDate()}`
+      label = monday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     } else if (mode === 'month') {
       key = `${date.getFullYear()}-${date.getMonth()}`
       label = date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
@@ -346,34 +333,30 @@ const buildDateAddedJumps = (items: LibraryItem[], pageSize: number): JumpPoint[
     groups.push({ label, index })
   })
 
-  return groupToJumps(sampleGroups(groups), pageSize, true)
+  return groupsToJumps(sampleGroups(groups), pageSize, true)
 }
 
-const buildJumps = (
-  items: LibraryItem[],
-  sortBy: SortField,
-  pageSize: number,
-): JumpPoint[] => {
-  if (sortBy === 'title') return buildTitleJumps(items, pageSize)
-  if (sortBy === 'year') return buildYearJumps(items, pageSize)
-  return buildDateAddedJumps(items, pageSize)
+const buildJumps = (items: LibraryItem[], field: SortField, pageSize: number) => {
+  if (field === 'title') return titleJumps(items, pageSize)
+  if (field === 'year') return yearJumps(items, pageSize)
+  return dateJumps(items, pageSize)
 }
 
 const jumpToPage = (page: number) => {
-  const current = router.currentRoute.value
-  const query = { ...current.query }
+  const route = router.currentRoute.value
+  const query = { ...route.query }
 
   if (page <= 1) delete query.page
   else query.page = String(page)
 
-  void router.push({ path: current.path, query, hash: current.hash })
+  void router.push({ path: route.path, query, hash: route.hash })
 }
 
 const renderJumps = (
   footer: HTMLElement,
   jumps: JumpPoint[],
   currentPage: number,
-  sortBy: SortField,
+  field: SortField,
 ) => {
   footer.querySelector(`.${JUMP_CLASS}`)?.remove()
   if (jumps.length < 2) return
@@ -382,17 +365,17 @@ const renderJumps = (
   strip.className = JUMP_CLASS
   strip.setAttribute(
     'aria-label',
-    sortBy === 'title' ? 'Jump by title' : sortBy === 'year' ? 'Jump by year' : 'Jump by date added',
+    field === 'title' ? 'Jump by title' : field === 'year' ? 'Jump by year' : 'Jump by date added',
   )
 
-  jumps.forEach((jump) => {
+  jumps.forEach(({ label, page }) => {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'library-jump-btn'
-    button.textContent = jump.label
-    button.dataset.current = jump.page === currentPage ? 'true' : 'false'
-    button.title = `Jump to ${jump.label}`
-    button.addEventListener('click', () => jumpToPage(jump.page))
+    button.textContent = label
+    button.title = `Jump to ${label}`
+    button.dataset.current = page === currentPage ? 'true' : 'false'
+    button.addEventListener('click', () => jumpToPage(page))
     strip.appendChild(button)
   })
 
@@ -420,9 +403,16 @@ const layoutFooter = (footer?: HTMLElement | null) => {
   })
 }
 
-const enhanceNavigation = async () => {
-  enhanceScheduled = false
-  const kind = getLibraryKind()
+const searchOrFilterActive = () => {
+  const search = document.querySelector<HTMLInputElement>('.search-container input')?.value.trim()
+  const label = router.currentRoute.value.query.label
+  return Boolean(search || label)
+}
+
+const enhance = async () => {
+  scheduled = false
+
+  const kind = getKind()
   const footer = document.querySelector<HTMLElement>('.view > .toolbar.pagination')
   if (!kind || !footer) return
 
@@ -430,88 +420,70 @@ const enhanceNavigation = async () => {
   layoutFooter(footer)
 
   const libraryId = getLibraryId(kind)
-  const { sortBy, sortOrder } = getSort(kind)
+  const { field, order } = getSort(kind)
   const pageSize = Math.max(1, Number(settings.posterDensity.value) || 20)
   const currentPage = Math.max(1, Number(router.currentRoute.value.query.page) || 1)
-  const searchActive = getSearchActive()
-  const labelActive = Boolean(router.currentRoute.value.query.label)
 
-  const signature = [
-    kind,
-    libraryId,
-    sortBy,
-    sortOrder,
-    pageSize,
-    currentPage,
-    searchActive ? 'search' : 'no-search',
-    labelActive ? 'label' : 'no-label',
-    cacheVersion,
-  ].join('|')
-
-  if (footer.dataset.libraryNavSignature === signature) return
+  const signature = [kind, libraryId, field, order, pageSize, currentPage, cacheVersion].join('|')
   footer.dataset.libraryNavSignature = signature
 
-  if (searchActive || labelActive) {
+  if (searchOrFilterActive()) {
     footer.querySelector(`.${JUMP_CLASS}`)?.remove()
     layoutFooter(footer)
     return
   }
 
-  const items = await getItems(kind, libraryId)
+  const items = await fetchItems(kind, libraryId)
   if (!footer.isConnected || footer.dataset.libraryNavSignature !== signature) return
 
-  const sorted = sortItems(items, sortBy, sortOrder)
-  const jumps = buildJumps(sorted, sortBy, pageSize)
-  renderJumps(footer, jumps, currentPage, sortBy)
+  const sorted = sortItems(items, field, order)
+  renderJumps(footer, buildJumps(sorted, field, pageSize), currentPage, field)
   layoutFooter(footer)
 }
 
 const scheduleEnhance = () => {
-  if (enhanceScheduled) return
-  enhanceScheduled = true
-  window.requestAnimationFrame(() => void enhanceNavigation())
+  if (scheduled) return
+  scheduled = true
+  window.requestAnimationFrame(() => void enhance())
 }
 
 const start = () => {
   installStyles()
   scheduleEnhance()
 
-  const observer = new MutationObserver(() => scheduleEnhance())
+  const observer = new MutationObserver(scheduleEnhance)
   observer.observe(document.body, { childList: true, subtree: true })
 
-  router.afterEach(() => scheduleEnhance())
-
+  router.afterEach(scheduleEnhance)
   window.addEventListener('resize', () => layoutFooter())
+
   window.addEventListener('simposter:libraries-rescanned', () => {
-    invalidateItems()
+    invalidate()
     scheduleEnhance()
   })
 
   document.addEventListener('input', (event) => {
-    const target = event.target
-    if (target instanceof HTMLInputElement && target.matches('.search-container input')) {
+    if (event.target instanceof HTMLInputElement && event.target.matches('.search-container input')) {
       scheduleEnhance()
     }
   })
 
   document.addEventListener('change', (event) => {
-    const target = event.target
-    if (target instanceof HTMLSelectElement && target.id === 'audiobook-library') {
-      invalidateItems()
+    if (event.target instanceof HTMLSelectElement && event.target.id === 'audiobook-library') {
+      invalidate()
       scheduleEnhance()
     }
   })
 
   document.addEventListener('click', (event) => {
-    const target = event.target
-    if (!(target instanceof Element)) return
+    if (!(event.target instanceof Element)) return
 
-    if (target.closest('.refresh-btn')) {
-      invalidateItems()
+    if (event.target.closest('.refresh-btn')) {
+      invalidate()
       window.setTimeout(scheduleEnhance, 250)
     }
 
-    if (target.closest('.collapse-btn')) {
+    if (event.target.closest('.collapse-btn')) {
       window.setTimeout(() => layoutFooter(), 240)
     }
   })
@@ -519,7 +491,7 @@ const start = () => {
   watch(
     [settings.posterDensity, settings.defaultSort, settings.deduplicateMovies],
     () => {
-      invalidateItems()
+      invalidate()
       scheduleEnhance()
     },
   )
