@@ -388,7 +388,7 @@ const jumpToPage = (targetPage: number) => {
   const delta = targetPage - currentPage
   if (delta === 0) return
 
-  const button = delta > 0 ? buttons.at(-1) : buttons[0]
+  const button = delta > 0 ? buttons[buttons.length - 1] : buttons[0]
   if (!button) return
 
   const steps = Math.abs(delta)
