@@ -6,70 +6,178 @@ const installStyles = () => {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-    /* TV owns its own desktop composition. Controls and Seasons stay fixed;
-       the remaining space belongs to the rendered poster stage. */
+    /*
+      TV has a different workflow from the other editors:
+      controls -> choose series/season -> judge rendered poster -> compare/send.
+
+      On desktop, spend horizontal space on the artwork rather than a permanent
+      Seasons rail. Seasons become a compact horizontal strip above the stage.
+    */
     @media (min-width: 901px) {
       .editor-shell:has(> .season-panel) {
-        grid-template-columns:
-          clamp(320px, 31vw, 420px)
-          clamp(110px, 12vw, 160px)
-          minmax(0, 1fr) !important;
+        display: grid !important;
+        grid-template-columns: clamp(330px, 34%, 420px) minmax(0, 1fr) !important;
+        grid-template-rows: 116px minmax(0, 1fr) !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
       }
 
-      .editor-shell:has(> .season-panel) .preview-pane {
+      .editor-shell:has(> .season-panel) > .controls-sidebar {
+        grid-column: 1 !important;
+        grid-row: 1 / -1 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+      }
+
+      /* --- SEASON STRIP -------------------------------------------------- */
+      .editor-shell:has(> .season-panel) > .season-panel {
+        grid-column: 2 !important;
+        grid-row: 1 !important;
+        display: grid !important;
+        grid-template-columns: 118px minmax(190px, 250px) minmax(0, 1fr) !important;
+        grid-template-rows: 1fr !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        height: 116px !important;
+        overflow: hidden !important;
+        border-right: 0 !important;
+        border-bottom: 1px solid var(--border) !important;
+        background: rgba(15, 17, 25, 0.92) !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-header {
+        grid-column: 1 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        padding: 10px !important;
+        border: 0 !important;
+        border-right: 1px solid var(--border) !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-title {
+        text-align: center !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-controls {
+        justify-content: center !important;
+      }
+
+      .editor-shell:has(> .season-panel) .current-season-banner {
+        grid-column: 2 !important;
+        min-width: 0 !important;
+        height: 100% !important;
+        box-sizing: border-box !important;
+        border-top: 0 !important;
+        border-bottom: 0 !important;
+        border-right: 1px solid var(--border) !important;
+        padding: 10px 12px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-list {
+        grid-column: 3 !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 8px !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        padding: 9px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-item {
+        flex: 0 0 122px !important;
+        width: 122px !important;
+        height: 88px !important;
+        box-sizing: border-box !important;
+        margin: 0 !important;
+        padding: 6px !important;
+        gap: 7px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-thumb-wrap {
+        width: 42px !important;
+        height: 64px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-name-row {
+        align-items: center !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-title-text {
+        overflow: hidden !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-number,
+      .editor-shell:has(> .season-panel) .season-badge {
+        white-space: nowrap !important;
+      }
+
+      /* --- PREVIEW WORKSPACE -------------------------------------------- */
+      .editor-shell:has(> .season-panel) > .preview-pane {
+        grid-column: 2 !important;
+        grid-row: 2 !important;
         container-type: inline-size;
         min-width: 0 !important;
         min-height: 0 !important;
+        width: 100% !important;
         height: 100% !important;
-        padding: 18px !important;
+        box-sizing: border-box !important;
+        padding: 14px 18px 16px !important;
         overflow: hidden !important;
         align-items: stretch !important;
         justify-content: stretch !important;
       }
 
-      /* One stage: full-width rendered preview above a compact utility strip. */
+      /* Main canvas above, comparison/history dock below. */
       .editor-shell:has(> .season-panel) .preview-inner {
         display: grid !important;
-        grid-template-columns: 220px minmax(0, 1fr) !important;
-        grid-template-rows: minmax(0, 1fr) auto !important;
-        column-gap: 18px !important;
-        row-gap: 18px !important;
+        grid-template-columns: 244px minmax(0, 1fr) !important;
+        grid-template-rows: minmax(0, 1fr) 154px !important;
+        column-gap: 16px !important;
+        row-gap: 14px !important;
         width: 100% !important;
         max-width: none !important;
         height: 100% !important;
         min-width: 0 !important;
         min-height: 0 !important;
         margin: 0 !important;
-        align-items: start !important;
+        align-items: stretch !important;
       }
 
-      /* TV's wrapper only groups the main preview and rendered thumbnails in
-         the Vue template. Flatten it so the stage grid controls placement. */
+      /* Flatten the template wrapper so the stage and history dock can occupy
+         explicit grid cells without moving DOM nodes. */
       .editor-shell:has(> .season-panel) .preview-content-wrapper {
         display: contents !important;
       }
 
-      /* Main rendered poster owns the full top row. */
+      /* --- MAIN POSTER STAGE -------------------------------------------- */
       .editor-shell:has(> .season-panel) .preview-main {
         grid-column: 1 / -1 !important;
         grid-row: 1 !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: flex-start !important;
+        display: grid !important;
+        grid-template-rows: auto minmax(0, 1fr) !important;
         width: 100% !important;
+        height: 100% !important;
         max-width: none !important;
         min-width: 0 !important;
         min-height: 0 !important;
+        align-items: stretch !important;
+        justify-items: center !important;
       }
 
-      /* Header follows the same width as the poster, so the actions live
-         directly across the top edge of the artwork instead of in a side rail. */
+      /* Header is the same visual width as the poster. */
       .editor-shell:has(> .season-panel) .preview-main > .preview-label {
-        width: min(100%, 560px) !important;
-        max-width: 560px !important;
+        grid-row: 1 !important;
+        width: min(100%, 660px) !important;
+        max-width: 660px !important;
         min-width: 0 !important;
-        margin: 0 auto 10px !important;
+        margin: 0 auto 9px !important;
         display: flex !important;
         align-items: center !important;
         flex-wrap: nowrap !important;
@@ -88,8 +196,8 @@ const installStyles = () => {
         min-width: 0 !important;
         margin: 0 !important;
         overflow: hidden !important;
-        text-overflow: ellipsis !important;
         white-space: nowrap !important;
+        text-overflow: ellipsis !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-main .preview-actions {
@@ -114,16 +222,18 @@ const installStyles = () => {
         box-sizing: border-box !important;
       }
 
-      /* Let width drive poster size on tall desktop displays. This uses the
-         previously wasted horizontal stage instead of permanently reserving a
-         Current Plex rail beside the artwork. */
+      /* The canvas takes every remaining pixel between toolbar and dock.
+         Height drives the poster until width becomes the limiting dimension. */
       .editor-shell:has(> .season-panel) .preview-container {
-        width: min(100%, 560px) !important;
-        max-width: 560px !important;
-        max-height: calc(100% - 46px) !important;
+        grid-row: 2 !important;
+        align-self: center !important;
+        justify-self: center !important;
+        width: auto !important;
+        height: 100% !important;
+        max-width: min(100%, 660px) !important;
+        max-height: 100% !important;
         aspect-ratio: 2 / 3 !important;
-        margin: 0 auto !important;
-        flex: 0 1 auto !important;
+        margin: 0 !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-img,
@@ -135,23 +245,26 @@ const installStyles = () => {
         object-fit: contain !important;
       }
 
-      /* Current Plex becomes a compact horizontal utility card beneath the
-         main poster instead of consuming permanent stage width. */
+      /* --- BOTTOM COMPARISON DOCK --------------------------------------- */
       .editor-shell:has(> .season-panel) .preview-existing {
         grid-column: 1 !important;
         grid-row: 2 !important;
         display: grid !important;
-        grid-template-columns: 88px minmax(0, 1fr) !important;
-        grid-template-rows: auto auto !important;
+        grid-template-columns: 96px minmax(0, 1fr) !important;
+        grid-template-rows: auto minmax(0, 1fr) !important;
         gap: 5px 10px !important;
-        width: 220px !important;
-        max-width: 220px !important;
+        width: 244px !important;
+        max-width: 244px !important;
         min-width: 0 !important;
+        min-height: 0 !important;
         margin: 0 !important;
-        padding: 8px !important;
+        padding: 8px 10px !important;
         box-sizing: border-box !important;
-        align-self: start !important;
+        align-self: stretch !important;
         text-align: left !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        background: rgba(255, 255, 255, 0.025) !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-existing > .preview-label:first-child {
@@ -164,10 +277,12 @@ const installStyles = () => {
       .editor-shell:has(> .season-panel) .preview-existing > .existing-img {
         grid-column: 1 !important;
         grid-row: 2 !important;
-        width: 78px !important;
-        max-width: 78px !important;
-        height: auto !important;
-        margin-inline: auto !important;
+        width: auto !important;
+        height: 104px !important;
+        max-width: 90px !important;
+        max-height: 104px !important;
+        margin: auto !important;
+        object-fit: contain !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-existing > .preview-label:nth-of-type(2) {
@@ -181,25 +296,33 @@ const installStyles = () => {
         grid-column: 2 !important;
         grid-row: 2 !important;
         width: 100% !important;
-        max-width: 110px !important;
-        min-height: 42px !important;
-        margin-inline: auto !important;
+        max-width: 122px !important;
+        min-height: 44px !important;
+        margin: auto !important;
       }
 
-      /* Rendered variants use the rest of the utility row horizontally. */
       .editor-shell:has(> .season-panel) .rendered-previews-section {
         grid-column: 2 !important;
         grid-row: 2 !important;
+        display: flex !important;
+        flex-direction: column !important;
         width: 100% !important;
         max-width: none !important;
         min-width: 0 !important;
+        min-height: 0 !important;
         margin: 0 !important;
-        align-self: start !important;
+        padding: 8px 10px !important;
+        box-sizing: border-box !important;
+        align-self: stretch !important;
         overflow: hidden !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        background: rgba(255, 255, 255, 0.025) !important;
       }
 
       .editor-shell:has(> .season-panel) .rendered-previews-section .carousel-label {
-        margin-bottom: 6px !important;
+        flex: 0 0 auto !important;
+        margin: 0 0 6px !important;
       }
 
       .editor-shell:has(> .season-panel) .rendered-previews-section .carousel-hint {
@@ -208,17 +331,20 @@ const installStyles = () => {
 
       .editor-shell:has(> .season-panel) .carousel-scroll {
         display: flex !important;
+        flex: 1 1 auto !important;
         flex-direction: row !important;
+        align-items: flex-start !important;
         gap: 8px !important;
         width: 100% !important;
+        min-height: 0 !important;
         overflow-x: auto !important;
         overflow-y: hidden !important;
         padding: 2px !important;
       }
 
       .editor-shell:has(> .season-panel) .carousel-item {
-        width: 68px !important;
-        max-width: 68px !important;
+        width: 70px !important;
+        max-width: 70px !important;
         margin: 0 !important;
         flex: 0 0 auto !important;
       }
@@ -230,10 +356,10 @@ const installStyles = () => {
       }
     }
 
-    /* If the stage cannot fit all actions beside the metadata, keep the
-       controls at the top of the poster by wrapping them onto a second header
-       line — never into a detached vertical sidebar. */
-    @container (max-width: 640px) {
+    /* Keep the action controls attached to the poster header. If the metadata
+       and buttons no longer fit on one line, the actions become a second
+       horizontal toolbar row rather than a detached vertical stack. */
+    @container (max-width: 700px) {
       .editor-shell:has(> .season-panel) .preview-main > .preview-label {
         flex-wrap: wrap !important;
       }
@@ -246,36 +372,55 @@ const installStyles = () => {
       }
     }
 
-    /* On shorter displays, cap artwork height so the compact utility strip
-       remains reachable without turning the whole editor into a page scroll. */
-    @media (min-width: 901px) and (max-height: 900px) {
-      .editor-shell:has(> .season-panel) .preview-container {
-        width: min(100%, 390px) !important;
-        max-width: 390px !important;
+    /* Shorter desktop windows spend less height on the comparison dock. */
+    @media (min-width: 901px) and (max-height: 850px) {
+      .editor-shell:has(> .season-panel) {
+        grid-template-rows: 104px minmax(0, 1fr) !important;
       }
 
-      .editor-shell:has(> .season-panel) .preview-main > .preview-label {
-        width: min(100%, 390px) !important;
-        max-width: 390px !important;
+      .editor-shell:has(> .season-panel) > .season-panel {
+        height: 104px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-inner {
+        grid-template-rows: minmax(0, 1fr) 124px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-item {
+        height: 78px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-thumb-wrap {
+        width: 36px !important;
+        height: 54px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-existing > .existing-img {
+        height: 78px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .carousel-thumb {
+        height: 76px !important;
       }
     }
 
-    /* Truly narrow preview panes can stack the utility strip; the main poster
-       still remains first and full width. */
-    @container (max-width: 470px) {
+    /* Truly narrow desktop stages can stack the two dock cards. The poster
+       remains first and owns the canvas; utilities never become side rails. */
+    @container (max-width: 500px) {
       .editor-shell:has(> .season-panel) .preview-pane {
         overflow-y: auto !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-inner {
         grid-template-columns: 1fr !important;
-        grid-template-rows: auto auto auto !important;
+        grid-template-rows: minmax(420px, 1fr) auto auto !important;
         height: auto !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-main {
         grid-column: 1 !important;
         grid-row: 1 !important;
+        min-height: 420px !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-existing {
@@ -287,6 +432,7 @@ const installStyles = () => {
       .editor-shell:has(> .season-panel) .rendered-previews-section {
         grid-column: 1 !important;
         grid-row: 3 !important;
+        min-height: 140px !important;
       }
     }
   `
