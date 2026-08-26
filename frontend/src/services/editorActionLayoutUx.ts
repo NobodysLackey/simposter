@@ -1,5 +1,6 @@
 const STYLE_ID = 'simposter-editor-action-layout-styles'
 const STACK_CLASS = 'simposter-actions-stacked'
+const TV_CLASS = 'simposter-tv-editor'
 
 const installStyles = () => {
   if (document.getElementById(STYLE_ID)) return
@@ -7,9 +8,7 @@ const installStyles = () => {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-    /* Every editor responds to the space actually available to its preview
-       pane. This is intentionally library-agnostic so Movies, Anime, TV and
-       Audiobooks all follow the same layout rules. */
+    /* The preview pane is the responsive boundary for every editor. */
     .editor-shell .preview-pane {
       container-type: inline-size;
       min-width: 0 !important;
@@ -20,26 +19,13 @@ const installStyles = () => {
     .editor-shell .preview-content-wrapper,
     .editor-shell .preview-main {
       min-width: 0 !important;
-      max-width: 100% !important;
       box-sizing: border-box;
     }
 
-    /* TV has a third, season-selection column. Let the controls and season
-       columns yield before starving the artwork pane. */
-    @media (min-width: 901px) {
-      .editor-shell:has(> .season-panel) {
-        grid-template-columns:
-          clamp(340px, 32vw, 420px)
-          clamp(130px, 14vw, 180px)
-          minmax(0, 1fr) !important;
-      }
-    }
-
-    /* TvShowEditorPane centers children inside preview-main, which otherwise
-       makes the header shrink to its content and falsely triggers button
-       stacking. All editors get a full-width preview header. */
+    /* Keep the action controls attached to the rendered-preview header. */
     .editor-shell .preview-main > .preview-label {
       width: 100% !important;
+      max-width: 100% !important;
       align-self: stretch !important;
       box-sizing: border-box;
     }
@@ -71,8 +57,7 @@ const installStyles = () => {
       justify-content: center;
     }
 
-    /* JS adds this only when the natural one-row action layout genuinely does
-       not fit in the current full-width preview header. */
+    /* Added only when the natural horizontal action row will not fit. */
     .editor-shell .preview-label.${STACK_CLASS} {
       align-items: flex-start !important;
     }
@@ -82,21 +67,23 @@ const installStyles = () => {
       align-items: stretch;
       justify-content: flex-start !important;
       width: auto !important;
-      max-width: 180px !important;
+      max-width: 165px !important;
       gap: 7px !important;
     }
 
-    .editor-shell .preview-label.${STACK_CLASS} .preview-actions .btn-inline {
-      width: auto !important;
-      min-width: 140px;
-      max-width: 180px;
+    .editor-shell .preview-label.${STACK_CLASS} .preview-actions .btn-inline,
+    .editor-shell .preview-label.${STACK_CLASS} .preview-actions .send-logo-toggle {
+      width: 100% !important;
+      min-width: 135px;
+      max-width: 165px;
+      box-sizing: border-box;
     }
 
-    /* At a genuinely narrow preview-pane width, normalize the standard
-       two-column editors. Rendered artwork gets the available width first;
-       the current Plex asset moves underneath it. */
+    /* ---------------------------------------------------------------
+       STANDARD EDITORS — Movies / Anime / Audiobooks
+       --------------------------------------------------------------- */
     @container (max-width: 760px) {
-      .editor-shell .preview-inner {
+      .editor-shell:not(.${TV_CLASS}) .preview-inner {
         display: flex !important;
         flex-direction: column !important;
         align-items: stretch !important;
@@ -107,9 +94,8 @@ const installStyles = () => {
         margin-inline: auto !important;
       }
 
-      /* TV wraps preview-main and its rendered-poster carousel in this extra
-         element. Other editors do not. */
-      .editor-shell .preview-content-wrapper {
+      .editor-shell:not(.${TV_CLASS}) .preview-content-wrapper,
+      .editor-shell:not(.${TV_CLASS}) .preview-main {
         order: 1;
         flex: 0 1 auto !important;
         width: 100% !important;
@@ -117,125 +103,173 @@ const installStyles = () => {
         align-self: stretch !important;
       }
 
-      /* Only direct preview-main children need ordering. TV's preview-main is
-         nested inside preview-content-wrapper; ordering it used to place the
-         rendered carousel above the main preview. */
-      .editor-shell .preview-inner > .preview-main {
-        order: 1;
-      }
-
-      .editor-shell .preview-main {
-        flex: 0 1 auto !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        align-self: stretch !important;
-        justify-self: stretch;
-      }
-
-      .editor-shell .preview-existing {
+      .editor-shell:not(.${TV_CLASS}) .preview-existing {
         order: 2;
         display: block !important;
         flex: 0 0 auto !important;
         width: min(260px, 100%) !important;
         max-width: 260px !important;
         align-self: center !important;
-        justify-self: center;
       }
 
-      .editor-shell .preview-container {
+      .editor-shell:not(.${TV_CLASS}) .preview-container {
         width: min(100%, 620px) !important;
         max-width: 100% !important;
         margin-inline: auto !important;
       }
+    }
 
-      /* TV is different: it has already spent horizontal space on a season
-         selector. Until the artwork pane is truly tiny, preserve a compact
-         Current Plex + Rendered side-by-side composition instead of turning
-         the poster into a giant full-width vertical card. */
-      .editor-shell:has(> .season-panel) .preview-inner {
-        flex-direction: row !important;
-        align-items: flex-start !important;
-        justify-content: center !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        gap: 12px !important;
-        margin-inline: 0 !important;
-      }
+    /* ---------------------------------------------------------------
+       TV EDITOR
 
-      .editor-shell:has(> .season-panel) .preview-existing {
-        order: 1;
-        width: 110px !important;
-        max-width: 110px !important;
-        align-self: flex-start !important;
-      }
+       TV owns a third Seasons column, so its preview needs an explicit
+       composition rather than generic flex reordering:
 
-      .editor-shell:has(> .season-panel) .preview-existing .existing-img,
-      .editor-shell:has(> .season-panel) .preview-existing .existing-logo-area {
-        width: 110px !important;
-        max-width: 110px !important;
-      }
+         [ Current Plex rail ] [ Rendered preview + carousel ]
 
-      .editor-shell:has(> .season-panel) .preview-content-wrapper {
-        order: 2;
-        flex: 1 1 auto !important;
-        width: auto !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        align-self: flex-start !important;
-      }
-
-      .editor-shell:has(> .season-panel) .preview-main {
-        width: 100% !important;
-        max-width: 100% !important;
-      }
-
-      .editor-shell:has(> .season-panel) .preview-container {
-        width: min(100%, 38vh, 360px) !important;
-        max-width: 100% !important;
-        max-height: 57vh !important;
-        margin-inline: auto !important;
-      }
-
-      .editor-shell:has(> .season-panel) .preview-img {
-        width: 100% !important;
-        height: 100% !important;
-        max-width: 100% !important;
-        max-height: 57vh !important;
-        object-fit: contain !important;
-      }
-
-      .editor-shell:has(> .season-panel) .rendered-previews-section {
-        order: initial !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        margin-top: 12px !important;
+       The whole stage collapses only when the preview pane itself becomes
+       too narrow for those two regions.
+       --------------------------------------------------------------- */
+    @media (min-width: 901px) {
+      .editor-shell.${TV_CLASS} {
+        grid-template-columns:
+          clamp(290px, 34%, 360px)
+          125px
+          minmax(0, 1fr) !important;
       }
     }
 
-    /* Once the TV artwork pane itself is genuinely tiny, vertical stacking is
-       preferable to crushing both poster columns. */
-    @container (max-width: 330px) {
-      .editor-shell:has(> .season-panel) .preview-inner {
-        flex-direction: column !important;
-        align-items: stretch !important;
-        gap: 18px !important;
+    .editor-shell.${TV_CLASS} .preview-pane {
+      align-items: flex-start !important;
+      justify-content: center !important;
+      padding: 18px !important;
+      overflow-y: auto !important;
+    }
+
+    .editor-shell.${TV_CLASS} .preview-inner {
+      display: grid !important;
+      grid-template-columns: 120px minmax(0, 1fr) !important;
+      grid-template-rows: auto !important;
+      align-items: start !important;
+      justify-content: center !important;
+      column-gap: 18px !important;
+      row-gap: 0 !important;
+      width: min(100%, 620px) !important;
+      max-width: 620px !important;
+      margin: auto !important;
+    }
+
+    .editor-shell.${TV_CLASS} .preview-existing {
+      grid-column: 1 !important;
+      grid-row: 1 !important;
+      width: 120px !important;
+      max-width: 120px !important;
+      align-self: start !important;
+      justify-self: center !important;
+      text-align: center !important;
+      order: initial !important;
+    }
+
+    .editor-shell.${TV_CLASS} .preview-existing .existing-img,
+    .editor-shell.${TV_CLASS} .preview-existing .existing-logo-area {
+      width: 120px !important;
+      max-width: 120px !important;
+      box-sizing: border-box;
+    }
+
+    .editor-shell.${TV_CLASS} .preview-content-wrapper {
+      grid-column: 2 !important;
+      grid-row: 1 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      width: 100% !important;
+      max-width: 460px !important;
+      min-width: 0 !important;
+      gap: 12px !important;
+      order: initial !important;
+      justify-self: center !important;
+    }
+
+    .editor-shell.${TV_CLASS} .preview-main {
+      width: 100% !important;
+      max-width: 460px !important;
+      min-width: 0 !important;
+      align-items: center !important;
+      order: initial !important;
+    }
+
+    .editor-shell.${TV_CLASS} .preview-container {
+      width: min(100%, 390px, 48vh) !important;
+      max-width: 390px !important;
+      max-height: 64vh !important;
+      margin-inline: auto !important;
+      box-sizing: border-box;
+    }
+
+    .editor-shell.${TV_CLASS} .preview-img {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 100% !important;
+      max-height: 64vh !important;
+      object-fit: contain !important;
+    }
+
+    .editor-shell.${TV_CLASS} .rendered-previews-section {
+      width: 100% !important;
+      max-width: 460px !important;
+      margin: 10px auto 0 !important;
+      order: initial !important;
+      align-self: center !important;
+    }
+
+    .editor-shell.${TV_CLASS} .carousel-scroll {
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box;
+    }
+
+    /* Collapse the TV stage as one unit — never let its individual pieces
+       independently float/reorder around the preview canvas. */
+    @container (max-width: 500px) {
+      .editor-shell.${TV_CLASS} .preview-inner {
+        grid-template-columns: 1fr !important;
+        grid-template-rows: auto auto !important;
+        width: min(100%, 460px) !important;
+        max-width: 460px !important;
+        row-gap: 22px !important;
       }
 
-      .editor-shell:has(> .season-panel) .preview-content-wrapper {
-        order: 1;
+      .editor-shell.${TV_CLASS} .preview-content-wrapper {
+        grid-column: 1 !important;
+        grid-row: 1 !important;
         width: 100% !important;
+        max-width: 460px !important;
       }
 
-      .editor-shell:has(> .season-panel) .preview-existing {
-        order: 2;
-        width: min(180px, 100%) !important;
-        max-width: 180px !important;
-        align-self: center !important;
+      .editor-shell.${TV_CLASS} .preview-existing {
+        grid-column: 1 !important;
+        grid-row: 2 !important;
+        width: 150px !important;
+        max-width: 150px !important;
+        justify-self: center !important;
+      }
+
+      .editor-shell.${TV_CLASS} .preview-existing .existing-img,
+      .editor-shell.${TV_CLASS} .preview-existing .existing-logo-area {
+        width: 150px !important;
+        max-width: 150px !important;
+      }
+
+      .editor-shell.${TV_CLASS} .preview-container {
+        width: min(100%, 360px, 48vh) !important;
+        max-width: 360px !important;
       }
     }
 
     /* Only at genuinely phone-sized pane widths should a stacked action set
-       consume the row beneath the Preview/Rendered label. */
+       take a full row beneath the Preview / Rendered labels. */
     @container (max-width: 360px) {
       .editor-shell .preview-label.${STACK_CLASS} {
         display: flex !important;
@@ -250,7 +284,8 @@ const installStyles = () => {
         margin-left: 0 !important;
       }
 
-      .editor-shell .preview-label.${STACK_CLASS} .preview-actions .btn-inline {
+      .editor-shell .preview-label.${STACK_CLASS} .preview-actions .btn-inline,
+      .editor-shell .preview-label.${STACK_CLASS} .preview-actions .send-logo-toggle {
         width: 100% !important;
         min-width: 0;
         max-width: none;
@@ -307,6 +342,13 @@ const evaluateLabel = (label: HTMLElement) => {
   }
 }
 
+const classifyEditors = () => {
+  document.querySelectorAll<HTMLElement>('.editor-shell').forEach((shell) => {
+    const hasSeasonPanel = Boolean(shell.querySelector(':scope > .season-panel'))
+    shell.classList.toggle(TV_CLASS, hasSeasonPanel)
+  })
+}
+
 let scheduled = false
 const observedLabels = new WeakSet<HTMLElement>()
 const observedPanes = new WeakSet<HTMLElement>()
@@ -316,6 +358,7 @@ const resizeObserver = typeof ResizeObserver !== 'undefined'
 
 const run = () => {
   scheduled = false
+  classifyEditors()
 
   document.querySelectorAll<HTMLElement>('.editor-shell .preview-pane').forEach((pane) => {
     if (resizeObserver && !observedPanes.has(pane)) {
