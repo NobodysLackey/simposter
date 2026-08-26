@@ -24,6 +24,17 @@ const installStyles = () => {
       box-sizing: border-box;
     }
 
+    /* TV has a third, season-selection column. Let the controls and season
+       columns yield before starving the artwork pane. */
+    @media (min-width: 901px) {
+      .editor-shell:has(> .season-panel) {
+        grid-template-columns:
+          clamp(340px, 32vw, 420px)
+          clamp(130px, 14vw, 180px)
+          minmax(0, 1fr) !important;
+      }
+    }
+
     /* TvShowEditorPane centers children inside preview-main, which otherwise
        makes the header shrink to its content and falsely triggers button
        stacking. All editors get a full-width preview header. */
@@ -81,10 +92,9 @@ const installStyles = () => {
       max-width: 180px;
     }
 
-    /* At a genuinely narrow preview-pane width, normalize every editor to the
-       same composition. This overrides both the grid-based audiobook layout
-       and the flex-based Movie/Anime/TV layouts. Rendered artwork gets the
-       available width first; the current Plex asset moves underneath it. */
+    /* At a genuinely narrow preview-pane width, normalize the standard
+       two-column editors. Rendered artwork gets the available width first;
+       the current Plex asset moves underneath it. */
     @container (max-width: 760px) {
       .editor-shell .preview-inner {
         display: flex !important;
@@ -98,7 +108,7 @@ const installStyles = () => {
       }
 
       /* TV wraps preview-main and its rendered-poster carousel in this extra
-         element; other editors do not. Give either structure the same role. */
+         element. Other editors do not. */
       .editor-shell .preview-content-wrapper {
         order: 1;
         flex: 0 1 auto !important;
@@ -107,8 +117,14 @@ const installStyles = () => {
         align-self: stretch !important;
       }
 
-      .editor-shell .preview-main {
+      /* Only direct preview-main children need ordering. TV's preview-main is
+         nested inside preview-content-wrapper; ordering it used to place the
+         rendered carousel above the main preview. */
+      .editor-shell .preview-inner > .preview-main {
         order: 1;
+      }
+
+      .editor-shell .preview-main {
         flex: 0 1 auto !important;
         width: 100% !important;
         max-width: 100% !important;
@@ -130,6 +146,91 @@ const installStyles = () => {
         width: min(100%, 620px) !important;
         max-width: 100% !important;
         margin-inline: auto !important;
+      }
+
+      /* TV is different: it has already spent horizontal space on a season
+         selector. Until the artwork pane is truly tiny, preserve a compact
+         Current Plex + Rendered side-by-side composition instead of turning
+         the poster into a giant full-width vertical card. */
+      .editor-shell:has(> .season-panel) .preview-inner {
+        flex-direction: row !important;
+        align-items: flex-start !important;
+        justify-content: center !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        gap: 12px !important;
+        margin-inline: 0 !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-existing {
+        order: 1;
+        width: 110px !important;
+        max-width: 110px !important;
+        align-self: flex-start !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-existing .existing-img,
+      .editor-shell:has(> .season-panel) .preview-existing .existing-logo-area {
+        width: 110px !important;
+        max-width: 110px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-content-wrapper {
+        order: 2;
+        flex: 1 1 auto !important;
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        align-self: flex-start !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-main {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-container {
+        width: min(100%, 38vh, 360px) !important;
+        max-width: 100% !important;
+        max-height: 57vh !important;
+        margin-inline: auto !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-img {
+        width: 100% !important;
+        height: 100% !important;
+        max-width: 100% !important;
+        max-height: 57vh !important;
+        object-fit: contain !important;
+      }
+
+      .editor-shell:has(> .season-panel) .rendered-previews-section {
+        order: initial !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-top: 12px !important;
+      }
+    }
+
+    /* Once the TV artwork pane itself is genuinely tiny, vertical stacking is
+       preferable to crushing both poster columns. */
+    @container (max-width: 330px) {
+      .editor-shell:has(> .season-panel) .preview-inner {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 18px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-content-wrapper {
+        order: 1;
+        width: 100% !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-existing {
+        order: 2;
+        width: min(180px, 100%) !important;
+        max-width: 180px !important;
+        align-self: center !important;
       }
     }
 
