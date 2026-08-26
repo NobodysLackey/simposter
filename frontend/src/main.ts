@@ -14,6 +14,7 @@ import './services/libraryNavigationDirectUx'
 import './services/movieEditorUx'
 import './services/matteToggleUx'
 import './services/editorActionLayoutUx'
+import './services/tvEditorLayoutUx'
 import './services/viewportLayoutUx'
 import './services/synthwaveTheme'
 
