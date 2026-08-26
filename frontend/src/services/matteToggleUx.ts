@@ -36,6 +36,7 @@ const LABELS: Record<keyof EffectValues, string> = {
 }
 
 const rememberedValues = new WeakMap<HTMLElement, EffectValues>()
+const applyingEditors = new WeakSet<HTMLElement>()
 
 const installStyles = () => {
   if (document.getElementById(STYLE_ID)) return
@@ -170,13 +171,31 @@ const applyControlValue = (control: EffectControl, value: number) => {
 }
 
 const applyValues = (
+  editor: HTMLElement,
   controls: Record<keyof EffectValues, EffectControl>,
   values: EffectValues,
 ) => {
-  applyControlValue(controls.matte, values.matte)
-  applyControlValue(controls.fade, values.fade)
-  applyControlValue(controls.vignette, values.vignette)
-  applyControlValue(controls.grain, values.grain)
+  applyingEditors.add(editor)
+  try {
+    applyControlValue(controls.matte, values.matte)
+    applyControlValue(controls.fade, values.fade)
+    applyControlValue(controls.vignette, values.vignette)
+    applyControlValue(controls.grain, values.grain)
+  } finally {
+    applyingEditors.delete(editor)
+  }
+}
+
+const syncToggleFromControls = (editor: HTMLElement) => {
+  if (applyingEditors.has(editor)) return
+
+  const controls = findControls(editor)
+  const checkbox = editor.querySelector<HTMLInputElement>(`.${TOGGLE_CLASS} input[type="checkbox"]`)
+  if (!controls || !checkbox) return
+
+  const current = readValues(controls)
+  checkbox.checked = !valuesAreZero(current)
+  if (!valuesAreZero(current)) rememberedValues.set(editor, current)
 }
 
 const ensureToggle = (editor: HTMLElement) => {
@@ -184,15 +203,12 @@ const ensureToggle = (editor: HTMLElement) => {
   if (!controls) return
 
   const current = readValues(controls)
-  let toggleRow = editor.querySelector<HTMLElement>(`.${TOGGLE_CLASS}`)
+  const existing = editor.querySelector<HTMLElement>(`.${TOGGLE_CLASS}`)
+  if (existing) return
 
-  if (toggleRow) return
+  if (!valuesAreZero(current)) rememberedValues.set(editor, current)
 
-  if (!valuesAreZero(current)) {
-    rememberedValues.set(editor, current)
-  }
-
-  toggleRow = document.createElement('div')
+  const toggleRow = document.createElement('div')
   toggleRow.className = TOGGLE_CLASS
 
   const label = document.createElement('span')
@@ -216,15 +232,13 @@ const ensureToggle = (editor: HTMLElement) => {
     if (!liveControls) return
 
     if (checkbox.checked) {
-      applyValues(editor && liveControls, rememberedValues.get(editor) || DEFAULT_EFFECTS)
+      applyValues(editor, liveControls, rememberedValues.get(editor) || DEFAULT_EFFECTS)
       return
     }
 
     const beforeDisable = readValues(liveControls)
-    if (!valuesAreZero(beforeDisable)) {
-      rememberedValues.set(editor, beforeDisable)
-    }
-    applyValues(liveControls, ZERO_EFFECTS)
+    if (!valuesAreZero(beforeDisable)) rememberedValues.set(editor, beforeDisable)
+    applyValues(editor, liveControls, ZERO_EFFECTS)
   })
 
   switchLabel.append(checkbox, track)
@@ -250,6 +264,15 @@ const start = () => {
 
   const observer = new MutationObserver(() => schedule())
   observer.observe(document.body, { childList: true, subtree: true })
+
+  document.addEventListener('input', (event) => {
+    const target = event.target
+    if (!(target instanceof HTMLInputElement)) return
+
+    const editor = target.closest<HTMLElement>('.editor-shell')
+    if (!editor || !target.closest('.slider')) return
+    syncToggleFromControls(editor)
+  })
 }
 
 if (typeof window !== 'undefined') {
