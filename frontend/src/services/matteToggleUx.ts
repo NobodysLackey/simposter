@@ -194,8 +194,16 @@ const syncToggleFromControls = (editor: HTMLElement) => {
   if (!controls || !checkbox) return
 
   const current = readValues(controls)
-  checkbox.checked = !valuesAreZero(current)
-  if (!valuesAreZero(current)) rememberedValues.set(editor, current)
+  const isOn = !valuesAreZero(current)
+
+  // The four effect fields are the source of truth. This deliberately repairs
+  // stale switch state after Vue loads a preset by assigning input values
+  // programmatically (which does not necessarily emit a DOM input event).
+  checkbox.checked = isOn
+
+  // Whenever real effect values exist, keep the exact combination as the
+  // restore snapshot. Zeroing the controls never overwrites this snapshot.
+  if (isOn) rememberedValues.set(editor, { ...current })
 }
 
 const ensureToggle = (editor: HTMLElement) => {
@@ -204,9 +212,12 @@ const ensureToggle = (editor: HTMLElement) => {
 
   const current = readValues(controls)
   const existing = editor.querySelector<HTMLElement>(`.${TOGGLE_CLASS}`)
-  if (existing) return
+  if (existing) {
+    syncToggleFromControls(editor)
+    return
+  }
 
-  if (!valuesAreZero(current)) rememberedValues.set(editor, current)
+  if (!valuesAreZero(current)) rememberedValues.set(editor, { ...current })
 
   const toggleRow = document.createElement('div')
   toggleRow.className = TOGGLE_CLASS
@@ -231,14 +242,28 @@ const ensureToggle = (editor: HTMLElement) => {
     const liveControls = findControls(editor)
     if (!liveControls) return
 
+    const currentValues = readValues(liveControls)
+
     if (checkbox.checked) {
+      // If a stale OFF switch somehow survives while the fields are already
+      // non-zero, never replace those live preset values with defaults.
+      if (!valuesAreZero(currentValues)) {
+        rememberedValues.set(editor, { ...currentValues })
+        checkbox.checked = true
+        return
+      }
+
       applyValues(editor, liveControls, rememberedValues.get(editor) || DEFAULT_EFFECTS)
+      checkbox.checked = true
       return
     }
 
-    const beforeDisable = readValues(liveControls)
-    if (!valuesAreZero(beforeDisable)) rememberedValues.set(editor, beforeDisable)
+    // OFF always snapshots the exact live values first, then zeros all four.
+    if (!valuesAreZero(currentValues)) {
+      rememberedValues.set(editor, { ...currentValues })
+    }
     applyValues(editor, liveControls, ZERO_EFFECTS)
+    checkbox.checked = false
   })
 
   switchLabel.append(checkbox, track)
@@ -265,13 +290,26 @@ const start = () => {
   const observer = new MutationObserver(() => schedule())
   observer.observe(document.body, { childList: true, subtree: true })
 
-  document.addEventListener('input', (event) => {
+  const syncFromEvent = (event: Event) => {
     const target = event.target
     if (!(target instanceof HTMLInputElement)) return
 
     const editor = target.closest<HTMLElement>('.editor-shell')
     if (!editor || !target.closest('.slider')) return
     syncToggleFromControls(editor)
+  }
+
+  document.addEventListener('input', syncFromEvent)
+  document.addEventListener('change', syncFromEvent)
+
+  // Vue can update v-model-backed input.value properties without generating a
+  // DOM mutation or input event. Four numeric reads per open editor at this
+  // cadence are negligible and keep the switch truthfully synchronized with
+  // loaded presets, season changes, and movie/audiobook editor changes.
+  window.setInterval(schedule, 250)
+  window.addEventListener('focus', schedule)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) schedule()
   })
 }
 
