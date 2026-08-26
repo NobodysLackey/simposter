@@ -95,6 +95,17 @@ const installStyles = () => {
         box-sizing: border-box;
       }
 
+      .editor-shell:has(> .season-panel) .preview-main .current-season-label {
+        min-width: 0 !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-main .status-badge {
+        flex: 0 0 auto !important;
+        width: max-content !important;
+        max-width: 100% !important;
+        justify-self: start !important;
+      }
+
       .editor-shell:has(> .season-panel) .preview-main .preview-actions {
         display: flex !important;
         flex-direction: row !important;
@@ -188,8 +199,31 @@ const installStyles = () => {
       .editor-shell:has(> .season-panel) .preview-main > .preview-label {
         display: grid !important;
         grid-template-columns: minmax(0, 1fr) auto !important;
+        grid-template-rows: auto auto auto !important;
         align-items: start !important;
-        gap: 8px 12px !important;
+        gap: 5px 12px !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-main .preview-title-row {
+        grid-column: 1 !important;
+        grid-row: 1 !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-main .current-season-label {
+        grid-column: 1 !important;
+        grid-row: 2 !important;
+        margin-top: 0 !important;
+        justify-self: start !important;
+      }
+
+      .editor-shell:has(> .season-panel) .preview-main .status-badge {
+        grid-column: 1 !important;
+        grid-row: 3 !important;
+        width: max-content !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        justify-self: start !important;
+        align-self: start !important;
       }
 
       .editor-shell:has(> .season-panel) .preview-main .preview-actions {
