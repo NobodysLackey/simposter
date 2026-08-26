@@ -7,23 +7,30 @@ const installStyles = () => {
   const style = document.createElement('style')
   style.id = STYLE_ID
   style.textContent = `
-    /* The preview pane owns editor responsiveness. The browser can still be
-       wide while the sidebar leaves this pane narrow, so viewport breakpoints
-       are not reliable here. */
+    /* Every editor responds to the space actually available to its preview
+       pane. This is intentionally library-agnostic so Movies, Anime, TV and
+       Audiobooks all follow the same layout rules. */
     .editor-shell .preview-pane {
       container-type: inline-size;
       min-width: 0 !important;
       overflow-x: hidden !important;
     }
 
-    .editor-shell .preview-inner {
-      min-width: 0 !important;
-      max-width: 100% !important;
-    }
-
+    .editor-shell .preview-inner,
+    .editor-shell .preview-content-wrapper,
     .editor-shell .preview-main {
       min-width: 0 !important;
       max-width: 100% !important;
+      box-sizing: border-box;
+    }
+
+    /* TvShowEditorPane centers children inside preview-main, which otherwise
+       makes the header shrink to its content and falsely triggers button
+       stacking. All editors get a full-width preview header. */
+    .editor-shell .preview-main > .preview-label {
+      width: 100% !important;
+      align-self: stretch !important;
+      box-sizing: border-box;
     }
 
     .editor-shell .preview-label {
@@ -42,6 +49,7 @@ const installStyles = () => {
       justify-content: flex-end !important;
       gap: 8px !important;
       margin-left: auto !important;
+      margin-top: 0 !important;
     }
 
     .editor-shell .preview-actions .btn-inline {
@@ -53,7 +61,7 @@ const installStyles = () => {
     }
 
     /* JS adds this only when the natural one-row action layout genuinely does
-       not fit in the current preview label. */
+       not fit in the current full-width preview header. */
     .editor-shell .preview-label.${STACK_CLASS} {
       align-items: flex-start !important;
     }
@@ -63,49 +71,70 @@ const installStyles = () => {
       align-items: stretch;
       justify-content: flex-start !important;
       width: auto !important;
-      max-width: 170px !important;
+      max-width: 180px !important;
       gap: 7px !important;
     }
 
     .editor-shell .preview-label.${STACK_CLASS} .preview-actions .btn-inline {
       width: auto !important;
       min-width: 140px;
-      max-width: 170px;
+      max-width: 180px;
     }
 
-    /* When the actual preview pane gets tight, stop forcing Current Plex Cover
-       and Preview to coexist side-by-side. Give the rendered artwork the full
-       pane width and move the current cover beneath it. */
+    /* At a genuinely narrow preview-pane width, normalize every editor to the
+       same composition. This overrides both the grid-based audiobook layout
+       and the flex-based Movie/Anime/TV layouts. Rendered artwork gets the
+       available width first; the current Plex asset moves underneath it. */
     @container (max-width: 760px) {
       .editor-shell .preview-inner {
-        grid-template-columns: minmax(0, 1fr) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        justify-content: flex-start !important;
         width: 100% !important;
         max-width: 660px !important;
         gap: 22px !important;
-        align-items: start !important;
+        margin-inline: auto !important;
+      }
+
+      /* TV wraps preview-main and its rendered-poster carousel in this extra
+         element; other editors do not. Give either structure the same role. */
+      .editor-shell .preview-content-wrapper {
+        order: 1;
+        flex: 0 1 auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        align-self: stretch !important;
       }
 
       .editor-shell .preview-main {
         order: 1;
+        flex: 0 1 auto !important;
         width: 100% !important;
+        max-width: 100% !important;
+        align-self: stretch !important;
         justify-self: stretch;
       }
 
       .editor-shell .preview-existing {
         order: 2;
         display: block !important;
+        flex: 0 0 auto !important;
         width: min(260px, 100%) !important;
+        max-width: 260px !important;
+        align-self: center !important;
         justify-self: center;
       }
 
       .editor-shell .preview-container {
         width: min(100%, 620px) !important;
         max-width: 100% !important;
+        margin-inline: auto !important;
       }
     }
 
     /* Only at genuinely phone-sized pane widths should a stacked action set
-       consume the row beneath the label. */
+       consume the row beneath the Preview/Rendered label. */
     @container (max-width: 360px) {
       .editor-shell .preview-label.${STACK_CLASS} {
         display: flex !important;
@@ -153,6 +182,7 @@ const measureNaturalWidth = (label: HTMLElement) => {
     actions.style.width = 'max-content'
     actions.style.maxWidth = 'none'
     actions.style.marginLeft = '0'
+    actions.style.marginTop = '0'
   }
 
   document.body.appendChild(clone)
@@ -178,12 +208,20 @@ const evaluateLabel = (label: HTMLElement) => {
 
 let scheduled = false
 const observedLabels = new WeakSet<HTMLElement>()
+const observedPanes = new WeakSet<HTMLElement>()
 const resizeObserver = typeof ResizeObserver !== 'undefined'
   ? new ResizeObserver(() => schedule())
   : null
 
 const run = () => {
   scheduled = false
+
+  document.querySelectorAll<HTMLElement>('.editor-shell .preview-pane').forEach((pane) => {
+    if (resizeObserver && !observedPanes.has(pane)) {
+      observedPanes.add(pane)
+      resizeObserver.observe(pane)
+    }
+  })
 
   document.querySelectorAll<HTMLElement>('.editor-shell .preview-label').forEach((label) => {
     if (!label.querySelector('.preview-actions')) return
