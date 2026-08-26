@@ -11,7 +11,7 @@ const installStyles = () => {
 
       Workflow hierarchy:
       1. Controls stay independently scrollable on the left.
-      2. Seasons use a readable responsive grid across the top of the workspace.
+      2. Seasons use a readable three-column grid across the top of the workspace.
       3. The editor/preview workspace receives every remaining pixel below it.
       4. On shorter windows, only the season grid becomes internally scrollable.
       5. Preview, current Plex state, and render history remain stable below.
@@ -85,16 +85,16 @@ const installStyles = () => {
 
       .editor-shell:has(> .season-panel) .season-list {
         display: grid !important;
-        grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)) !important;
-        grid-auto-rows: 58px !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        grid-auto-rows: 78px !important;
         align-content: start !important;
-        gap: 8px !important;
+        gap: 10px !important;
         width: 100% !important;
         height: auto !important;
         min-width: 0 !important;
         min-height: 0 !important;
         max-height: calc(min(42dvh, 600px) - 40px) !important;
-        padding: 9px 12px 11px !important;
+        padding: 10px 12px 12px !important;
         overflow-x: hidden !important;
         overflow-y: auto !important;
         box-sizing: border-box !important;
@@ -103,26 +103,26 @@ const installStyles = () => {
 
       .editor-shell:has(> .season-panel) .season-item {
         display: grid !important;
-        grid-template-columns: 30px minmax(0, 1fr) auto !important;
+        grid-template-columns: 42px minmax(0, 1fr) auto !important;
         align-items: center !important;
-        gap: 8px !important;
+        gap: 10px !important;
         width: 100% !important;
         min-width: 0 !important;
-        height: 58px !important;
-        min-height: 58px !important;
+        height: 78px !important;
+        min-height: 78px !important;
         margin: 0 !important;
-        padding: 4px 8px !important;
-        border-radius: 8px !important;
+        padding: 7px 10px !important;
+        border-radius: 9px !important;
         box-sizing: border-box !important;
       }
 
       .editor-shell:has(> .season-panel) .season-thumb-wrap {
         display: block !important;
-        width: 30px !important;
-        height: 45px !important;
-        min-width: 30px !important;
+        width: 42px !important;
+        height: 63px !important;
+        min-width: 42px !important;
         margin: 0 !important;
-        border-radius: 4px !important;
+        border-radius: 5px !important;
       }
 
       .editor-shell:has(> .season-panel) .season-thumb,
@@ -141,7 +141,7 @@ const installStyles = () => {
         display: flex !important;
         align-items: center !important;
         justify-content: flex-start !important;
-        gap: 5px !important;
+        gap: 6px !important;
         min-width: 0 !important;
       }
 
@@ -153,6 +153,11 @@ const installStyles = () => {
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         white-space: nowrap !important;
+      }
+
+      .editor-shell:has(> .season-panel) .season-title-text,
+      .editor-shell:has(> .season-panel) .season-number {
+        font-size: 12px !important;
       }
 
       .editor-shell:has(> .season-panel) .season-checkbox {
