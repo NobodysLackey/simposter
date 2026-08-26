@@ -13,6 +13,7 @@ import './services/libraryNavigationSemanticUx'
 import './services/libraryNavigationDirectUx'
 import './services/movieEditorUx'
 import './services/matteToggleUx'
+import './services/editorActionLayoutUx'
 import './services/viewportLayoutUx'
 import './services/synthwaveTheme'
 
