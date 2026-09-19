@@ -60,7 +60,7 @@ const pageSize = computed(() => settings.posterDensity.value || 20)
 
 const libraries = computed<AudiobookLibrary[]>(() => {
   const mappings = audiobookSettings.value.library_mappings || []
-  if (!mappings.length) return discoveredLibraries.value
+  if (!mappings.length) return []
 
   const enabledMappings = mappings.filter((mapping) => mapping.enabled !== false)
   return enabledMappings
@@ -329,8 +329,8 @@ onMounted(async () => {
       <button @click="router.push({ name: 'audiobook-settings' })">Open Audiobook Settings</button>
     </div>
     <div v-else-if="libraries.length === 0" class="callout">
-      <p>No audiobook libraries are enabled.</p>
-      <button @click="router.push({ name: 'audiobook-settings' })">Configure Libraries</button>
+      <p>No Plex libraries are classified as Audiobooks.</p>
+      <button @click="router.push({ name: 'settings', query: { tab: 'libraries' } })">Manage Libraries</button>
     </div>
     <AudiobookGrid
       v-else
