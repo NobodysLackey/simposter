@@ -211,7 +211,10 @@ const removeLibrary = (index: number) => {
 
 const selectedPresetValue = (library: LibraryMapping) => {
   if (library.autoGenerateTemplateId && library.autoGeneratePresetId) {
-    return library.autoGenerateTemplateId + ':' + library.autoGeneratePresetId
+    const presetId = library.autoGeneratePresetId.includes(':')
+      ? library.autoGeneratePresetId.split(':').pop() || library.autoGeneratePresetId
+      : library.autoGeneratePresetId
+    return library.autoGenerateTemplateId + ':' + presetId
   }
   return library.autoGeneratePresetId || ''
 }
@@ -377,8 +380,8 @@ watch(
   [
     () => props.plexUrl,
     () => props.plexToken,
-    () => localLibraries.value.map((library) => library.id).join(','),
-    () => localTvShowLibraries.value.map((library) => library.id).join(','),
+    () => localLibraries.value.map((library) => library.id + ':' + library.contentType).join(','),
+    () => localTvShowLibraries.value.map((library) => library.id + ':' + library.contentType).join(','),
   ],
   () => {
     if (props.plexUrl && props.plexToken && (localLibraries.value.length > 0 || localTvShowLibraries.value.length > 0)) {
