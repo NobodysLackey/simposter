@@ -197,18 +197,6 @@ def _default_ui_settings() -> UISettings:
                 }
                 for idx, lid in enumerate(getattr(settings, "PLEX_MOVIE_LIB_IDS", []))
             ],
-            "configuredLibraryMappings": [
-                {
-                    "id": lid,
-                    "title": getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [settings.PLEX_MOVIE_LIBRARY_NAME])[idx]
-                    if idx < len(getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [])) else settings.PLEX_MOVIE_LIBRARY_NAME,
-                    "displayName": getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [settings.PLEX_MOVIE_LIBRARY_NAME])[idx]
-                    if idx < len(getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [])) else settings.PLEX_MOVIE_LIBRARY_NAME,
-                    "contentType": "movie",
-                    "plexType": "movie",
-                }
-                for idx, lid in enumerate(getattr(settings, "PLEX_MOVIE_LIB_IDS", []))
-            ],
         },
         tmdb={"apiKey": getattr(settings, "TMDB_API_KEY", "")},
         tvdb={"apiKey": getattr(settings, "TVDB_API_KEY", ""), "comingSoon": False},
