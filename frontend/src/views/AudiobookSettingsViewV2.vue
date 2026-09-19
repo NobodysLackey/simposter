@@ -273,7 +273,7 @@ onMounted(async () => {
         <div class="section-heading">
           <div>
             <h3>Audiobook Functionality</h3>
-            <p>Controls whether configured music libraries appear in SimPoster.</p>
+            <p>Controls whether configured audiobook libraries appear in SimPoster.</p>
           </div>
           <label class="toggle-row">
             <input v-model="settings.enabled" type="checkbox" />
