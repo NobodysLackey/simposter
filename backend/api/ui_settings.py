@@ -53,6 +53,24 @@ def _normalize_plex_payload(data: dict) -> dict:
             if isinstance(m, dict)
         ]
 
+
+    # Canonical library mappings (all Plex section types).
+    if "configuredLibraryMappings" in normalized and isinstance(normalized["configuredLibraryMappings"], list):
+        normalized["configuredLibraryMappings"] = [
+            {
+                "id": str(m.get("id", "")),
+                "title": str(m.get("title", "")),
+                "displayName": str(m.get("displayName", "")),
+                "contentType": str(m.get("contentType", "") or ""),
+                "plexType": str(m.get("plexType", "") or ""),
+                "autoGenerateEnabled": m.get("autoGenerateEnabled", False),
+                "autoGeneratePresetId": m.get("autoGeneratePresetId"),
+                "autoGenerateTemplateId": m.get("autoGenerateTemplateId"),
+                "webhookIgnoreLabels": m.get("webhookIgnoreLabels", []) or [],
+            }
+            for m in normalized["configuredLibraryMappings"]
+            if isinstance(m, dict)
+        ]
     # Normalize TV show library settings
     if "tvShowLibraryName" in normalized:
         normalized["tvShowLibraryName"] = str(normalized["tvShowLibraryName"])
@@ -90,17 +108,32 @@ def _apply_runtime_settings(merged: dict):
     tmdb_data = merged.get("tmdb", {}) or {}
     tvdb_data = merged.get("tvdb", {}) or {}
     fanart_data = merged.get("fanart", {}) or {}
+    configured_library_mappings = plex_data.get("configuredLibraryMappings") or []
     library_mappings = plex_data.get("libraryMappings") or []
+    if not library_mappings and configured_library_mappings:
+        library_mappings = [
+            mapping for mapping in configured_library_mappings
+            if str(mapping.get("contentType", "")).lower() == "movie"
+        ]
     tv_names = plex_data.get("tvShowLibraryNames") or []
     if not tv_names and plex_data.get("tvShowLibraryName"):
         tv_names = [plex_data.get("tvShowLibraryName")]
     tv_names = [str(n) for n in tv_names if str(n).strip()]
     tv_library_mappings = plex_data.get("tvShowLibraryMappings") or []
+    if not tv_library_mappings and configured_library_mappings:
+        tv_library_mappings = [
+            mapping for mapping in configured_library_mappings
+            if str(mapping.get("contentType", "")).lower() == "show"
+        ]
+    if not tv_names and tv_library_mappings:
+        tv_names = [str(mapping.get("id")) for mapping in tv_library_mappings if mapping.get("id")]
     url = plex_data.get("url") or ""
     token = plex_data.get("token") or ""
     names = plex_data.get("movieLibraryNames") or []
     if not names and plex_data.get("movieLibraryName"):
         names = [plex_data.get("movieLibraryName")]
+    if not names and library_mappings:
+        names = [mapping.get("id") for mapping in library_mappings if mapping.get("id")]
     names = [str(n) for n in names if str(n).strip()]
 
     # Use object.__setattr__ to avoid pydantic field restrictions
@@ -161,6 +194,18 @@ def _default_ui_settings() -> UISettings:
                     if idx < len(getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [])) else settings.PLEX_MOVIE_LIBRARY_NAME,
                     "displayName": getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [settings.PLEX_MOVIE_LIBRARY_NAME])[idx]
                     if idx < len(getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [])) else settings.PLEX_MOVIE_LIBRARY_NAME,
+                }
+                for idx, lid in enumerate(getattr(settings, "PLEX_MOVIE_LIB_IDS", []))
+            ],
+            "configuredLibraryMappings": [
+                {
+                    "id": lid,
+                    "title": getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [settings.PLEX_MOVIE_LIBRARY_NAME])[idx]
+                    if idx < len(getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [])) else settings.PLEX_MOVIE_LIBRARY_NAME,
+                    "displayName": getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [settings.PLEX_MOVIE_LIBRARY_NAME])[idx]
+                    if idx < len(getattr(settings, "PLEX_MOVIE_LIBRARY_NAMES", [])) else settings.PLEX_MOVIE_LIBRARY_NAME,
+                    "contentType": "movie",
+                    "plexType": "movie",
                 }
                 for idx, lid in enumerate(getattr(settings, "PLEX_MOVIE_LIB_IDS", []))
             ],
