@@ -127,9 +127,17 @@ const loadSettings = async () => {
 }
 
 const loadLibraries = async () => {
-  const response = await fetch(`${apiBase}/api/audiobook-libraries`)
+  const response = await fetch(`${apiBase}/api/ui-settings`)
   if (!response.ok) throw new Error(await response.text())
-  libraries.value = await response.json()
+  const data = await response.json()
+  const configured = data?.plex?.configuredLibraryMappings || []
+  libraries.value = configured
+    .filter((library: any) => library.contentType === 'audiobook' && library.id)
+    .map((library: any) => ({
+      id: String(library.id),
+      title: library.displayName || library.title || String(library.id),
+      type: library.plexType || 'audiobook',
+    }))
 }
 
 const loadPresets = async () => {
@@ -217,9 +225,20 @@ onMounted(async () => {
   errorMessage.value = ''
   try {
     await Promise.all([loadSettings(), loadLibraries(), loadPresets()])
-    if (settings.value.library_mappings.length === 0) {
-      settings.value.library_mappings = libraries.value.map((library) => createMapping(library, true))
-    }
+    const previousMappings = new Map(
+      settings.value.library_mappings.map((mapping) => [String(mapping.id), mapping])
+    )
+    settings.value.library_mappings = libraries.value.map((library) => {
+      const previous = previousMappings.get(String(library.id))
+      return {
+        ...createMapping(library, true),
+        ...(previous || {}),
+        id: String(library.id),
+        title: library.title,
+        display_name: library.title,
+        enabled: true,
+      }
+    })
     await loadGoogleStatus()
   } catch (cause) {
     errorMessage.value = cause instanceof Error ? cause.message : 'Could not load audiobook settings.'
@@ -235,7 +254,7 @@ onMounted(async () => {
       <div>
         <p class="kicker">Settings</p>
         <h2>🎧 Audiobooks</h2>
-        <p class="subtitle">Configure Plex music libraries, cover providers, editor defaults, presets, and save behavior.</p>
+        <p class="subtitle">Configure audiobook cover providers, editor defaults, presets, and save behavior.</p>
       </div>
       <div class="header-actions">
         <button class="secondary" @click="router.push({ name: 'audiobooks' })">Back to Audiobooks</button>
@@ -325,38 +344,35 @@ onMounted(async () => {
       <section class="section glass">
         <div class="section-heading">
           <div>
-            <h3>Plex Music Libraries</h3>
-            <p>Select which Plex music sections are treated as audiobook libraries.</p>
+            <h3>Audiobook Libraries</h3>
+            <p>Library selection and media type are managed centrally in Settings → Libraries.</p>
           </div>
-          <span class="count-chip">{{ enabledMappings.length }} enabled</span>
+          <button class="secondary" type="button" @click="router.push({ name: 'settings', query: { tab: 'libraries' } })">
+            Manage Libraries
+          </button>
         </div>
 
         <div v-if="libraryEntries.length" class="library-grid">
           <article v-for="entry in libraryEntries" :key="entry.library.id" class="library-card">
-            <label class="library-toggle">
-              <input v-model="entry.mapping.enabled" type="checkbox" />
+            <div class="library-toggle">
               <strong>{{ entry.library.title }}</strong>
               <span>Library {{ entry.library.id }}</span>
-            </label>
+            </div>
 
-            <template v-if="entry.mapping.enabled">
-              <label class="field-label">
-                Display Name
-                <input v-model="entry.mapping.display_name" type="text" />
-              </label>
-              <label class="field-label">
-                Default Preset
-                <select v-model="entry.mapping.default_preset_id">
-                  <option value="">Use global default</option>
-                  <option v-for="preset in displayedPresets" :key="preset.id" :value="preset.id">
-                    {{ preset.name || preset.id }}
-                  </option>
-                </select>
-              </label>
-            </template>
+            <label class="field-label">
+              Default Preset
+              <select v-model="entry.mapping.default_preset_id">
+                <option value="">Use global default</option>
+                <option v-for="preset in displayedPresets" :key="preset.id" :value="preset.id">
+                  {{ preset.name || preset.id }}
+                </option>
+              </select>
+            </label>
           </article>
         </div>
-        <p v-else class="empty-state">No Plex music libraries were found.</p>
+        <p v-else class="empty-state">
+          No libraries are classified as Audiobooks. Use Manage Libraries to add or reclassify one.
+        </p>
       </section>
 
       <section class="section glass">
