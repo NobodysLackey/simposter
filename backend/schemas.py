@@ -73,6 +73,7 @@ class PlexSettings(BaseModel):
     movieLibraryName: str = ""
     movieLibraryNames: List[str] = Field(default_factory=list)
     libraryMappings: List[Dict[str, Any]] = Field(default_factory=list)
+    configuredLibraryMappings: List[Dict[str, Any]] = Field(default_factory=list)
     tvShowLibraryName: str = ""
     tvShowLibraryNames: List[str] = Field(default_factory=list)
     tvShowLibraryMappings: List[Dict[str, Any]] = Field(default_factory=list)
