@@ -29,9 +29,14 @@ const tabs = computed<MenuItem[]>(() => {
     ]
   }
 
-  const libs = settings.plex.value.libraryMappings && settings.plex.value.libraryMappings.length
-    ? settings.plex.value.libraryMappings
-    : [{ id: settings.plex.value.movieLibraryName || 'default', displayName: 'Movies', title: 'Movies' }]
+  const configuredLibraries = settings.plex.value.configuredLibraryMappings || []
+  const libs = configuredLibraries.length
+    ? configuredLibraries.filter((lib) => lib.contentType === 'movie' && lib.id)
+    : settings.plex.value.libraryMappings && settings.plex.value.libraryMappings.length
+      ? settings.plex.value.libraryMappings
+      : settings.plex.value.movieLibraryName
+        ? [{ id: settings.plex.value.movieLibraryName, displayName: 'Movies', title: 'Movies' }]
+        : []
 
   const movieTabs: MenuItem[] = libs.map((lib, idx) => ({
     key: `movies-${lib.id || idx}`,
@@ -45,9 +50,11 @@ const tabs = computed<MenuItem[]>(() => {
     ]
   }))
 
-  const tvLibs = settings.plex.value.tvShowLibraryMappings && settings.plex.value.tvShowLibraryMappings.length
-    ? settings.plex.value.tvShowLibraryMappings
-    : []
+  const tvLibs = configuredLibraries.length
+    ? configuredLibraries.filter((lib) => lib.contentType === 'show' && lib.id)
+    : settings.plex.value.tvShowLibraryMappings && settings.plex.value.tvShowLibraryMappings.length
+      ? settings.plex.value.tvShowLibraryMappings
+      : []
 
   const tvShowTabs: MenuItem[] = tvLibs.length > 0 ? tvLibs.map((lib, idx) => ({
     key: `tv-shows-${lib.id || idx}`,
