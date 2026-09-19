@@ -38,7 +38,7 @@ const page = ref(Math.max(1, Number(route.query.page) || 1))
 
 const getDefaultSort = () => {
   const defaultSort = settings.defaultSort?.value || 'title-asc'
-  const [field, order] = defaultSort.split('-')
+  const [field = 'title', order = 'asc'] = defaultSort.split('-')
   const sortField = field === 'added' ? 'addedAt' : field
   return {
     sortBy: (['title', 'year', 'addedAt'].includes(sortField) ? sortField : 'title') as 'title' | 'artist' | 'year' | 'addedAt',
