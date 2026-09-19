@@ -60,9 +60,18 @@ const tabs = computed<MenuItem[]>(() => {
     ]
   })) : []
 
+  const audiobookLibs = (settings.plex.value.configuredLibraryMappings || [])
+    .filter((lib) => lib.contentType === 'audiobook' && lib.id)
+
+  const audiobookTabs: MenuItem[] = audiobookLibs.map((lib, idx) => ({
+    key: `audiobooks-${lib.id || idx}`,
+    label: `\u{1F3A7} ${lib.displayName || lib.title || `Audiobooks ${idx + 1}`}`,
+  }))
+
   return [
     ...movieTabs,
     ...tvShowTabs,
+    ...audiobookTabs,
     { key: 'template-manager', label: '\u{1F3A8} Template Manager' },
     { key: 'overlay-config-manager', label: '\u{1F4D0} Overlay Config' },
     { key: 'history', label: '\u{1F4CB} History' },
@@ -333,6 +342,12 @@ const activeTab = computed<TabKey>(() => {
     const firstTvLib = settings.plex.value.tvShowLibraryMappings && settings.plex.value.tvShowLibraryMappings[0]
     return `tv-shows-${firstTvLib?.id || 'default'}`
   }
+  if (route.name === 'audiobooks') {
+    if (libQuery) return `audiobooks-${libQuery}`
+    const firstAudiobookLib = (settings.plex.value.configuredLibraryMappings || [])
+      .find((lib) => lib.contentType === 'audiobook' && lib.id)
+    return `audiobooks-${firstAudiobookLib?.id || 'default'}`
+  }
   return (route.name as TabKey) || 'movies'
 })
 
@@ -378,6 +393,9 @@ const handleTabSelect = (tab: TabKey) => {
   } else if (tab.startsWith('tv-shows-')) {
     const libId = tab.replace('tv-shows-', '')
     router.push({ name: 'tv-shows', query: { library: libId } })
+  } else if (tab.startsWith('audiobooks-')) {
+    const libId = tab.replace('audiobooks-', '')
+    router.push({ name: 'audiobooks', query: { library: libId } })
   } else {
     router.push({ name: tab })
   }
