@@ -2,10 +2,14 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { getApiBase } from '@/services/apiBase'
 
+type LibraryContentType = 'movie' | 'show' | 'music' | 'audiobook' | 'other'
+
 interface LibraryMapping {
   id: string
   title?: string
   displayName?: string
+  contentType?: LibraryContentType
+  plexType?: string
   autoGenerateEnabled?: boolean
   autoGeneratePresetId?: string | null
   autoGenerateTemplateId?: string | null
@@ -23,25 +27,10 @@ interface Preset {
   name: string
 }
 
-interface Movie {
-  key: string
-  title: string
-  labels?: string[]
-}
-
-interface TVShow {
-  key: string
-  title: string
-  labels?: string[]
-}
-
 const props = defineProps<{
   plexUrl: string
   plexToken: string
-  libraries: LibraryMapping[]
-  tvShowLibraries: LibraryMapping[]
-  savedLibraryIds: Set<string>
-  savedTvShowLibraryIds: Set<string>
+  configuredLibraries: LibraryMapping[]
   testConnection: string
   testConnectionLoading: boolean
   plexLibraries: PlexLibrary[]
@@ -62,12 +51,12 @@ const props = defineProps<{
 const apiBase = getApiBase()
 const availablePresets = ref<Record<string, Preset[]>>({})
 const presetsLoading = ref(false)
+const localConfiguredLibraries = ref<LibraryMapping[]>([])
 
 const emit = defineEmits<{
   'update:plexUrl': [value: string]
   'update:plexToken': [value: string]
-  'update:libraries': [value: LibraryMapping[]]
-  'update:tvShowLibraries': [value: LibraryMapping[]]
+  'update:configuredLibraries': [value: LibraryMapping[]]
   'update:schedulerEnabled': [value: boolean]
   'update:schedulerCronExpression': [value: string]
   'update:schedulerLibraryIds': [value: string[]]
@@ -79,6 +68,33 @@ const emit = defineEmits<{
   'save': []
 }>()
 
+const cloneLibraries = (libraries: LibraryMapping[]) =>
+  libraries.map((library) => ({
+    ...library,
+    webhookIgnoreLabels: [...(library.webhookIgnoreLabels || [])],
+  }))
+
+watch(
+  () => props.configuredLibraries,
+  (libraries) => {
+    const incoming = cloneLibraries(libraries || [])
+    if (JSON.stringify(incoming) !== JSON.stringify(localConfiguredLibraries.value)) {
+      localConfiguredLibraries.value = incoming
+    }
+  },
+  { immediate: true, deep: true },
+)
+
+watch(
+  localConfiguredLibraries,
+  (libraries) => {
+    if (JSON.stringify(libraries) !== JSON.stringify(props.configuredLibraries || [])) {
+      emit('update:configuredLibraries', cloneLibraries(libraries))
+    }
+  },
+  { deep: true },
+)
+
 const localPlexUrl = computed({
   get: () => props.plexUrl,
   set: (val) => emit('update:plexUrl', val)
@@ -89,59 +105,13 @@ const localPlexToken = computed({
   set: (val) => emit('update:plexToken', val)
 })
 
-const localLibraries = computed({
-  get: () => {
-    // Reconstruct the template:preset format for display
-    return props.libraries.map(lib => ({
-      ...lib,
-      autoGeneratePresetId: lib.autoGenerateTemplateId && lib.autoGeneratePresetId
-        ? `${lib.autoGenerateTemplateId}:${lib.autoGeneratePresetId.split(':')[1] || lib.autoGeneratePresetId}`
-        : lib.autoGeneratePresetId
-    }))
-  },
-  set: (val) => {
-    // Parse template:preset format and split into separate fields before emitting
-    const parsed = val.map(lib => {
-      if (lib.autoGeneratePresetId && lib.autoGeneratePresetId.includes(':')) {
-        const [templateId, presetId] = lib.autoGeneratePresetId.split(':')
-        return {
-          ...lib,
-          autoGenerateTemplateId: templateId,
-          autoGeneratePresetId: presetId
-        }
-      }
-      return lib
-    })
-    emit('update:libraries', parsed)
-  }
-})
+const localLibraries = computed(() =>
+  localConfiguredLibraries.value.filter((library) => library.contentType === 'movie')
+)
 
-const localTvShowLibraries = computed({
-  get: () => {
-    // Reconstruct the template:preset format for display
-    return props.tvShowLibraries.map(lib => ({
-      ...lib,
-      autoGeneratePresetId: lib.autoGenerateTemplateId && lib.autoGeneratePresetId
-        ? `${lib.autoGenerateTemplateId}:${lib.autoGeneratePresetId.split(':')[1] || lib.autoGeneratePresetId}`
-        : lib.autoGeneratePresetId
-    }))
-  },
-  set: (val) => {
-    // Parse template:preset format and split into separate fields before emitting
-    const parsed = val.map(lib => {
-      if (lib.autoGeneratePresetId && lib.autoGeneratePresetId.includes(':')) {
-        const [templateId, presetId] = lib.autoGeneratePresetId.split(':')
-        return {
-          ...lib,
-          autoGenerateTemplateId: templateId,
-          autoGeneratePresetId: presetId
-        }
-      }
-      return lib
-    })
-    emit('update:tvShowLibraries', parsed)
-  }
-})
+const localTvShowLibraries = computed(() =>
+  localConfiguredLibraries.value.filter((library) => library.contentType === 'show')
+)
 
 const localSchedulerEnabled = computed({
   get: () => props.schedulerEnabled,
@@ -168,15 +138,103 @@ const localTvLabelsToRemove = computed({
   set: (val) => emit('update:defaultTvLabelsToRemove', val)
 })
 
-// Force change detection for library automation settings
-const updateLibraries = () => {
-  // Trigger the computed setter by reassigning the value
-  localLibraries.value = [...localLibraries.value]
+const inferContentType = (plexType?: string): LibraryContentType => {
+  const normalized = (plexType || '').toLowerCase()
+  if (normalized === 'movie') return 'movie'
+  if (normalized === 'show') return 'show'
+  if (normalized === 'artist' || normalized === 'music') return 'music'
+  return 'other'
 }
 
-const updateTvShowLibraries = () => {
-  // Trigger the computed setter by reassigning the value
-  localTvShowLibraries.value = [...localTvShowLibraries.value]
+const contentTypeLabel = (contentType?: LibraryContentType) => {
+  if (contentType === 'movie') return 'Movie'
+  if (contentType === 'show') return 'TV Show'
+  if (contentType === 'music') return 'Music'
+  if (contentType === 'audiobook') return 'Audiobook'
+  return 'Other'
+}
+
+const supportsPosterAutomation = (library: LibraryMapping) =>
+  library.contentType === 'movie' || library.contentType === 'show'
+
+const selectedLibraryIds = computed(
+  () => new Set(localConfiguredLibraries.value.map((library) => String(library.id || '')).filter(Boolean))
+)
+
+const availablePlexLibraries = (currentId: string) =>
+  props.plexLibraries.filter(
+    (library) => String(library.key) === String(currentId) || !selectedLibraryIds.value.has(String(library.key))
+  )
+
+const handleLibrarySelection = (index: number) => {
+  const library = localConfiguredLibraries.value[index]
+  if (!library) return
+
+  const plexLibrary = props.plexLibraries.find(
+    (candidate) => String(candidate.key) === String(library.id)
+  )
+  if (!plexLibrary) return
+
+  const oldTitle = library.title || ''
+  const oldPlexType = library.plexType || ''
+  const existingDisplayName = (library.displayName || '').trim()
+
+  library.title = plexLibrary.title
+  library.plexType = plexLibrary.type
+  if (!existingDisplayName || existingDisplayName === oldTitle) {
+    library.displayName = plexLibrary.title
+  }
+
+  const inferredOldType = inferContentType(oldPlexType)
+  if (!library.contentType || library.contentType === 'other' || library.contentType === inferredOldType) {
+    library.contentType = inferContentType(plexLibrary.type)
+  }
+}
+
+const addLibrary = () => {
+  localConfiguredLibraries.value.push({
+    id: '',
+    title: '',
+    displayName: '',
+    contentType: 'other',
+    plexType: '',
+    autoGenerateEnabled: false,
+    autoGeneratePresetId: null,
+    autoGenerateTemplateId: null,
+    webhookIgnoreLabels: [],
+  })
+}
+
+const removeLibrary = (index: number) => {
+  localConfiguredLibraries.value.splice(index, 1)
+}
+
+const selectedPresetValue = (library: LibraryMapping) => {
+  if (library.autoGenerateTemplateId && library.autoGeneratePresetId) {
+    return library.autoGenerateTemplateId + ':' + library.autoGeneratePresetId
+  }
+  return library.autoGeneratePresetId || ''
+}
+
+const setLibraryPreset = (index: number, value: string) => {
+  const library = localConfiguredLibraries.value[index]
+  if (!library) return
+
+  if (!value) {
+    library.autoGenerateTemplateId = null
+    library.autoGeneratePresetId = null
+    return
+  }
+
+  const separator = value.indexOf(':')
+  if (separator === -1) {
+    library.autoGenerateTemplateId = null
+    library.autoGeneratePresetId = value
+    return
+  }
+
+  library.autoGenerateTemplateId = value.slice(0, separator)
+  library.autoGeneratePresetId = value.slice(separator + 1)
 }
 
 const availableLabels = ref<Record<string, string[]>>({})
@@ -187,63 +245,29 @@ const fetchLibraryLabels = async () => {
   const labels: Record<string, string[]> = {}
 
   try {
-    // Fetch labels for all movie libraries
-    for (const lib of props.libraries) {
-      if (!lib.id) continue
+    for (const library of localConfiguredLibraries.value) {
+      if (!library.id || !supportsPosterAutomation(library)) continue
+
+      const endpoint = library.contentType === 'show' ? '/api/tv-shows/labels/all' : '/api/movies/labels/all'
       try {
-        const url = `${apiBase}/api/movies/labels/all?library_id=${encodeURIComponent(lib.id)}`
-        const res = await fetch(url)
-        if (!res.ok) {
-          if (res.status === 404) {
-            console.error(`Labels endpoint not found. Please restart the backend server to load new API endpoints.`)
-          } else {
-            console.error(`Failed to fetch labels for movie library ${lib.id}: HTTP ${res.status}`)
-          }
+        const url = apiBase + endpoint + '?library_id=' + encodeURIComponent(library.id)
+        const response = await fetch(url)
+        if (!response.ok) {
+          console.error('Failed to fetch labels for library ' + library.id + ': HTTP ' + response.status)
           continue
         }
-        const contentType = res.headers.get('content-type')
+        const contentType = response.headers.get('content-type')
         if (!contentType || !contentType.includes('application/json')) {
-          console.error(`Failed to fetch labels for movie library ${lib.id}: Expected JSON, got ${contentType}`)
-          const text = await res.text()
-          console.error('Response:', text.substring(0, 200))
+          console.error('Failed to fetch labels for library ' + library.id + ': expected JSON')
           continue
         }
-        const data = await res.json()
-        labels[lib.id] = data.labels || []
-      } catch (e) {
-        console.error(`Failed to fetch labels for movie library ${lib.id}:`, e)
+        const data = await response.json()
+        labels[library.id] = data.labels || []
+      } catch (error) {
+        console.error('Failed to fetch labels for library ' + library.id + ':', error)
       }
     }
 
-    // Fetch labels for all TV show libraries
-    for (const lib of props.tvShowLibraries) {
-      if (!lib.id) continue
-      try {
-        const url = `${apiBase}/api/tv-shows/labels/all?library_id=${encodeURIComponent(lib.id)}`
-        const res = await fetch(url)
-        if (!res.ok) {
-          if (res.status === 404) {
-            console.error(`Labels endpoint not found. Please restart the backend server to load new API endpoints.`)
-          } else {
-            console.error(`Failed to fetch labels for TV library ${lib.id}: HTTP ${res.status}`)
-          }
-          continue
-        }
-        const contentType = res.headers.get('content-type')
-        if (!contentType || !contentType.includes('application/json')) {
-          console.error(`Failed to fetch labels for TV library ${lib.id}: Expected JSON, got ${contentType}`)
-          const text = await res.text()
-          console.error('Response:', text.substring(0, 200))
-          continue
-        }
-        const data = await res.json()
-        labels[lib.id] = data.labels || []
-      } catch (e) {
-        console.error(`Failed to fetch labels for TV library ${lib.id}:`, e)
-      }
-    }
-
-    // Force reactivity update by replacing the entire object
     availableLabels.value = { ...labels }
   } finally {
     labelsLoading.value = false
@@ -268,32 +292,15 @@ const isLabelChecked = (libraryId: string, label: string, isTv: boolean) => {
   return targetObj[libraryId]?.includes(label) || false
 }
 
-// Toggle ignore label for webhook processing
-const toggleIgnoreLabel = (libraryIdx: number, label: string, isTv: boolean) => {
-  if (isTv) {
-    const libs = [...localTvShowLibraries.value]
-    const lib = libs[libraryIdx]
-    if (!lib) return
-    const current = lib.webhookIgnoreLabels || []
-    const index = current.indexOf(label)
-    if (index > -1) {
-      lib.webhookIgnoreLabels = current.filter(l => l !== label)
-    } else {
-      lib.webhookIgnoreLabels = [...current, label]
-    }
-    localTvShowLibraries.value = libs
+const toggleIgnoreLabel = (libraryIndex: number, label: string) => {
+  const library = localConfiguredLibraries.value[libraryIndex]
+  if (!library) return
+
+  const current = library.webhookIgnoreLabels || []
+  if (current.includes(label)) {
+    library.webhookIgnoreLabels = current.filter((item) => item !== label)
   } else {
-    const libs = [...localLibraries.value]
-    const lib = libs[libraryIdx]
-    if (!lib) return
-    const current = lib.webhookIgnoreLabels || []
-    const index = current.indexOf(label)
-    if (index > -1) {
-      lib.webhookIgnoreLabels = current.filter(l => l !== label)
-    } else {
-      lib.webhookIgnoreLabels = [...current, label]
-    }
-    localLibraries.value = libs
+    library.webhookIgnoreLabels = [...current, label]
   }
 }
 
@@ -308,53 +315,22 @@ const toggleLibrarySelection = (libraryId: string) => {
   localSchedulerLibraryIds.value = current
 }
 
-const isLibrarySelected = (libraryId: string) => {
-  return localSchedulerLibraryIds.value.includes(libraryId)
-}
+const isLibrarySelected = (libraryId: string) => localSchedulerLibraryIds.value.includes(libraryId)
 
-const addLibrary = () => {
-  localLibraries.value = [...localLibraries.value, {
-    id: '',
-    title: '',
-    displayName: '',
-    autoGenerateEnabled: false,
-    autoGeneratePresetId: null,
-    autoGenerateTemplateId: null
-  }]
-}
-
-const removeLibrary = (idx: number) => {
-  localLibraries.value = localLibraries.value.filter((_, i) => i !== idx)
-}
-
-const addTvShowLibrary = () => {
-  localTvShowLibraries.value = [...localTvShowLibraries.value, {
-    id: '',
-    title: '',
-    displayName: '',
-    autoGenerateEnabled: false,
-    autoGeneratePresetId: null,
-    autoGenerateTemplateId: null
-  }]
-}
-
-const removeTvShowLibrary = (idx: number) => {
-  localTvShowLibraries.value = localTvShowLibraries.value.filter((_, i) => i !== idx)
-}
-
-const availableLibrariesForScheduler = computed(() => {
-  const allLibs = [
-    ...props.libraries.map(l => ({ id: l.id, name: l.displayName || l.title || l.id, type: 'Movie' })),
-    ...props.tvShowLibraries.map(l => ({ id: l.id, name: l.displayName || l.title || l.id, type: 'TV' }))
-  ].filter(l => l.id)
-  return allLibs
-})
+const availableLibrariesForScheduler = computed(() =>
+  localConfiguredLibraries.value
+    .filter((library) => library.id && supportsPosterAutomation(library))
+    .map((library) => ({
+      id: library.id,
+      name: library.displayName || library.title || library.id,
+      type: library.contentType === 'show' ? 'TV' : 'Movie',
+    }))
+)
 
 const formatNextRunTime = (timestamp: string | null) => {
   if (!timestamp) return 'Not scheduled'
   try {
-    const date = new Date(timestamp)
-    return date.toLocaleString()
+    return new Date(timestamp).toLocaleString()
   } catch {
     return timestamp
   }
@@ -363,27 +339,26 @@ const formatNextRunTime = (timestamp: string | null) => {
 const fetchPresets = async () => {
   presetsLoading.value = true
   try {
-    const res = await fetch(`${apiBase}/api/presets`)
-    if (res.ok) {
-      availablePresets.value = await res.json()
+    const response = await fetch(apiBase + '/api/presets')
+    if (response.ok) {
+      availablePresets.value = await response.json()
     }
-  } catch (e) {
-    console.error('Failed to fetch presets:', e)
+  } catch (error) {
+    console.error('Failed to fetch presets:', error)
   } finally {
     presetsLoading.value = false
   }
 }
 
-// Get all presets flattened for dropdown
 const allPresets = computed(() => {
   const presets: Preset[] = []
   Object.entries(availablePresets.value).forEach(([templateId, templateData]) => {
     const templatePresets = (templateData as any).presets
     if (Array.isArray(templatePresets)) {
-      templatePresets.forEach(preset => {
+      templatePresets.forEach((preset) => {
         presets.push({
-          id: `${templateId}:${preset.id}`,
-          name: `${templateId} - ${preset.name}`
+          id: templateId + ':' + preset.id,
+          name: templateId + ' - ' + preset.name,
         })
       })
     }
@@ -392,31 +367,26 @@ const allPresets = computed(() => {
 })
 
 onMounted(async () => {
-  fetchPresets()
-  // Fetch labels if we have Plex credentials and libraries
-  if (props.plexUrl && props.plexToken && (props.libraries.length > 0 || props.tvShowLibraries.length > 0)) {
+  await fetchPresets()
+  if (props.plexUrl && props.plexToken && (localLibraries.value.length > 0 || localTvShowLibraries.value.length > 0)) {
     await fetchLibraryLabels()
   }
 })
 
-// Watch for any changes that should trigger a label refetch
 watch(
   [
-    () => props.libraries,
-    () => props.tvShowLibraries,
     () => props.plexUrl,
-    () => props.plexToken
+    () => props.plexToken,
+    () => localLibraries.value.map((library) => library.id).join(','),
+    () => localTvShowLibraries.value.map((library) => library.id).join(','),
   ],
   () => {
-    // Only fetch if we have credentials and at least one library
-    if (props.plexUrl && props.plexToken && (props.libraries.length > 0 || props.tvShowLibraries.length > 0)) {
+    if (props.plexUrl && props.plexToken && (localLibraries.value.length > 0 || localTvShowLibraries.value.length > 0)) {
       fetchLibraryLabels()
     }
   },
-  { deep: true }
 )
 
-// Webhook URL Generator
 const webhookType = ref<'radarr' | 'sonarr' | 'tautulli'>('radarr')
 const webhookTemplate = ref('universal')
 const webhookPreset = ref('default')
@@ -424,9 +394,7 @@ const webhookIncludeSeasons = ref(true)
 const webhookEventTypes = ref('added,watched')
 const copiedWebhook = ref(false)
 
-const webhookTemplates = computed(() => {
-  return Object.keys(availablePresets.value)
-})
+const webhookTemplates = computed(() => Object.keys(availablePresets.value))
 
 const webhookPresets = computed(() => {
   const templateData = availablePresets.value[webhookTemplate.value]
@@ -436,14 +404,18 @@ const webhookPresets = computed(() => {
 })
 
 const generatedWebhookUrl = computed(() => {
-  const baseUrl = window.location.origin.replace(':5173', ':8003') // Replace frontend port with API port
-  
+  const baseUrl = window.location.origin.replace(':5173', ':8003')
+
   if (webhookType.value === 'radarr') {
-    return `${baseUrl}/api/webhook/radarr/${webhookTemplate.value}/${webhookPreset.value}`
-  } else if (webhookType.value === 'sonarr') {
-    return `${baseUrl}/api/webhook/sonarr/${webhookTemplate.value}/${webhookPreset.value}?include_seasons=${webhookIncludeSeasons.value}`
-  } else if (webhookType.value === 'tautulli') {
-    return `${baseUrl}/api/webhook/tautulli?template_id=${webhookTemplate.value}&preset_id=${webhookPreset.value}&event_types=${webhookEventTypes.value}`
+    return baseUrl + '/api/webhook/radarr/' + webhookTemplate.value + '/' + webhookPreset.value
+  }
+  if (webhookType.value === 'sonarr') {
+    return baseUrl + '/api/webhook/sonarr/' + webhookTemplate.value + '/' + webhookPreset.value +
+      '?include_seasons=' + webhookIncludeSeasons.value
+  }
+  if (webhookType.value === 'tautulli') {
+    return baseUrl + '/api/webhook/tautulli?template_id=' + webhookTemplate.value +
+      '&preset_id=' + webhookPreset.value + '&event_types=' + webhookEventTypes.value
   }
   return ''
 })
@@ -456,29 +428,30 @@ const copyWebhookUrl = () => {
   }, 2000)
 }
 
-const tautulliHeaders = JSON.stringify({ "Content-Type": "application/json" }, null, 2)
+const tautulliHeaders = JSON.stringify({ 'Content-Type': 'application/json' }, null, 2)
 
 const tautulliJsonData = JSON.stringify({
-  event: "{action}",
-  media_type: "{media_type}",
-  title: "{title}",
-  year: "{year}",
-  rating_key: "{rating_key}",
-  tmdb_id: "{tmdb_id}",
-  tvdb_id: "{thetvdb_id}"
+  event: '{action}',
+  media_type: '{media_type}',
+  title: '{title}',
+  year: '{year}',
+  rating_key: '{rating_key}',
+  tmdb_id: '{tmdb_id}',
+  tvdb_id: '{thetvdb_id}'
 }, null, 2)
 
 const webhookInstructions = computed(() => {
   if (webhookType.value === 'radarr') {
     return 'In Radarr: Settings → Connect → Webhook. Set URL above, triggers: "On Import" and "On Upgrade"'
-  } else if (webhookType.value === 'sonarr') {
+  }
+  if (webhookType.value === 'sonarr') {
     return 'In Sonarr: Settings → Connect → Webhook. Set URL above, triggers: "On Import Complete"'
-  } else if (webhookType.value === 'tautulli') {
+  }
+  if (webhookType.value === 'tautulli') {
     return 'In Tautulli: Settings → Notification Agents → Add Webhook. Trigger: "Recently Added". Use the JSON headers and data below.'
   }
   return ''
 })
-
 </script>
 
 <template>
@@ -548,227 +521,149 @@ const webhookInstructions = computed(() => {
       <p class="help-text">When enabled, the "Send logo to Plex" option will be pre-checked in the poster editor and batch edit screens.</p>
     </div>
 
-    <!-- Libraries Grid -->
-    <div class="libraries-grid">
-      <!-- Movie Libraries -->
-      <div class="section">
-        <div class="section-header-inline">
-          <h3>Movie Libraries</h3>
-          <button @click="addLibrary" class="secondary-small">
-            + Add
-          </button>
-        </div>
-
-        <div v-for="(lib, idx) in localLibraries" :key="idx" class="library-card">
-        <div class="library-fields">
-          <label>
-            <span class="label-text">Library ID</span>
-            <select
-              v-model="lib.id"
-              :disabled="savedLibraryIds.has(String(lib.id))"
-            >
-              <option value="">Select a library...</option>
-              <option
-                v-for="plexLib in plexLibraries.filter(l => l.type === 'movie')"
-                :key="plexLib.key"
-                :value="plexLib.key"
-              >
-                {{ plexLib.title }} ({{ plexLib.key }})
-              </option>
-            </select>
-          </label>
-
-          <label>
-            <span class="label-text">Display Name</span>
-            <input
-              v-model="lib.displayName"
-              type="text"
-              placeholder="Custom display name"
-            />
-          </label>
-        </div>
-
-        <!-- Auto-Generation Settings -->
-        <div v-if="lib.id" class="auto-gen-section">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="lib.autoGenerateEnabled" @change="updateLibraries" />
-            <span>Enable automatic poster generation for new content</span>
-          </label>
-
-          <div v-if="lib.autoGenerateEnabled" class="preset-selection">
-            <label>
-              <span class="label-text">Template & Preset</span>
-              <select v-model="lib.autoGeneratePresetId" @change="updateLibraries">
-                <option value="">Select a preset...</option>
-                <option
-                  v-for="preset in allPresets"
-                  :key="preset.id"
-                  :value="preset.id"
-                >
-                  {{ preset.name }}
-                </option>
-              </select>
-              <span class="help-text">Choose which template/preset to use for auto-generation</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Webhook Ignore Labels -->
-        <div v-if="lib.id" class="webhook-ignore-section">
-          <label>
-            <span class="label-text">Webhook Ignore Labels</span>
-            <span class="help-text">Items with these labels will be skipped when webhooks trigger poster generation</span>
-          </label>
-          <div v-if="(availableLabels[lib.id] || []).length > 0" class="ignore-labels-grid">
-            <label
-              v-for="label in availableLabels[lib.id] || []"
-              :key="`ignore-${lib.id}-${label}`"
-              class="label-checkbox ignore-label-checkbox"
-            >
-              <input
-                type="checkbox"
-                :checked="(lib.webhookIgnoreLabels || []).includes(label)"
-                @change="toggleIgnoreLabel(idx, label, false)"
-              />
-              <span>{{ label }}</span>
-            </label>
-          </div>
-          <p v-else class="no-labels-hint">
-            No labels available. Scan the library and click "Refresh Labels" in the Labels section below.
+    <!-- Configured Libraries -->
+    <div class="section">
+      <div class="section-header-inline">
+        <div>
+          <h3 style="margin-bottom: 4px;">Configured Libraries</h3>
+          <p class="section-description" style="margin-bottom: 0;">
+            Add any Plex library and choose how SimPoster should treat it.
           </p>
         </div>
-
-        <div class="library-actions">
-          <button
-            v-if="lib.id"
-            @click="emit('scan-library', lib.id)"
-            :disabled="scanCooldown || scanningLibraryId === lib.id"
-            class="scan-btn"
-            :title="`Scan ${lib.displayName || lib.title || lib.id}`"
-          >
-            {{ scanningLibraryId === lib.id ? 'Scanning...' : 'Scan' }}
-          </button>
-
-          <button
-            v-if="localLibraries.length > 1"
-            @click="removeLibrary(idx)"
-            class="remove-btn"
-            :disabled="savedLibraryIds.has(String(lib.id))"
-          >
-            Remove
-          </button>
-        </div>
-      </div>
+        <button @click="addLibrary" class="secondary-small">
+          + Add Library
+        </button>
       </div>
 
-      <!-- TV Show Libraries -->
-      <div class="section">
-        <div class="section-header-inline">
-          <h3>TV Show Libraries</h3>
-          <button @click="addTvShowLibrary" class="secondary-small">
-            + Add
-          </button>
-        </div>
+      <div v-if="localConfiguredLibraries.length === 0" class="no-labels">
+        <p>No libraries configured. Use “Add Library” to choose one of the Plex sections discovered above.</p>
+      </div>
 
-        <div v-for="(lib, idx) in localTvShowLibraries" :key="idx" class="library-card">
-        <div class="library-fields">
-          <label>
-            <span class="label-text">Library ID</span>
-            <select
-              v-model="lib.id"
-              :disabled="savedTvShowLibraryIds.has(String(lib.id))"
-            >
-              <option value="">Select a library...</option>
-              <option
-                v-for="plexLib in plexLibraries.filter(l => l.type === 'show')"
-                :key="plexLib.key"
-                :value="plexLib.key"
-              >
-                {{ plexLib.title }} ({{ plexLib.key }})
-              </option>
-            </select>
-          </label>
+      <div v-else class="configured-libraries-grid">
+        <div
+          v-for="(lib, idx) in localConfiguredLibraries"
+          :key="lib.id || 'new-' + idx"
+          class="library-card"
+        >
+          <div class="library-card-heading">
+            <strong>{{ lib.displayName || lib.title || 'New Library' }}</strong>
+            <span class="library-type-badge" :class="lib.contentType || 'other'">
+              {{ contentTypeLabel(lib.contentType) }}
+            </span>
+          </div>
 
-          <label>
-            <span class="label-text">Display Name</span>
-            <input
-              v-model="lib.displayName"
-              type="text"
-              placeholder="Custom display name"
-            />
-          </label>
-        </div>
-
-        <div v-if="lib.id" class="auto-gen-section">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="lib.autoGenerateEnabled" @change="updateTvShowLibraries" />
-            <span>Enable automatic poster generation for new content</span>
-          </label>
-
-          <div v-if="lib.autoGenerateEnabled" class="preset-selection">
+          <div class="library-fields">
             <label>
-              <span class="label-text">Template & Preset</span>
-              <select v-model="lib.autoGeneratePresetId" @change="updateTvShowLibraries">
-                <option value="">Select a preset...</option>
+              <span class="label-text">Plex Library</span>
+              <select v-model="lib.id" @change="handleLibrarySelection(idx)">
+                <option value="">Select a library...</option>
                 <option
-                  v-for="preset in allPresets"
-                  :key="preset.id"
-                  :value="preset.id"
+                  v-if="lib.id && !plexLibraries.some(item => String(item.key) === String(lib.id))"
+                  :value="lib.id"
                 >
-                  {{ preset.name }}
+                  {{ lib.title || lib.id }} (saved)
+                </option>
+                <option
+                  v-for="plexLib in availablePlexLibraries(lib.id)"
+                  :key="plexLib.key"
+                  :value="plexLib.key"
+                >
+                  {{ plexLib.title }} ({{ plexLib.type }}, {{ plexLib.key }})
                 </option>
               </select>
-              <span class="help-text">Choose which template/preset to use for auto-generation</span>
+              <span v-if="lib.plexType" class="help-text">Plex section type: {{ lib.plexType }}</span>
             </label>
-          </div>
-        </div>
 
-        <!-- Webhook Ignore Labels -->
-        <div v-if="lib.id" class="webhook-ignore-section">
-          <label>
-            <span class="label-text">Webhook Ignore Labels</span>
-            <span class="help-text">Items with these labels will be skipped when webhooks trigger poster generation</span>
-          </label>
-          <div v-if="(availableLabels[lib.id] || []).length > 0" class="ignore-labels-grid">
-            <label
-              v-for="label in availableLabels[lib.id] || []"
-              :key="`ignore-tv-${lib.id}-${label}`"
-              class="label-checkbox ignore-label-checkbox"
-            >
-              <input
-                type="checkbox"
-                :checked="(lib.webhookIgnoreLabels || []).includes(label)"
-                @change="toggleIgnoreLabel(idx, label, true)"
-              />
-              <span>{{ label }}</span>
+            <label>
+              <span class="label-text">Display Name</span>
+              <input v-model="lib.displayName" type="text" placeholder="Custom display name" />
+            </label>
+
+            <label>
+              <span class="label-text">Content Type</span>
+              <select v-model="lib.contentType">
+                <option value="movie">Movie</option>
+                <option value="show">TV Show</option>
+                <option value="music">Music</option>
+                <option value="audiobook">Audiobook</option>
+                <option value="other">Other</option>
+              </select>
+              <span class="help-text">Music-style Plex sections can be classified as Music or Audiobook.</span>
             </label>
           </div>
-          <p v-else class="no-labels-hint">
-            No labels available. Scan the library and click "Refresh Labels" in the Labels section below.
+
+          <div v-if="lib.id && supportsPosterAutomation(lib)" class="auto-gen-section">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="lib.autoGenerateEnabled" />
+              <span>Enable automatic poster generation for new content</span>
+            </label>
+
+            <div v-if="lib.autoGenerateEnabled" class="preset-selection">
+              <label>
+                <span class="label-text">Template & Preset</span>
+                <select
+                  :value="selectedPresetValue(lib)"
+                  @change="setLibraryPreset(idx, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="">Select a preset...</option>
+                  <option v-for="preset in allPresets" :key="preset.id" :value="preset.id">
+                    {{ preset.name }}
+                  </option>
+                </select>
+                <span class="help-text">Choose which template/preset to use for auto-generation</span>
+              </label>
+            </div>
+          </div>
+
+          <div v-if="lib.id && supportsPosterAutomation(lib)" class="webhook-ignore-section">
+            <label>
+              <span class="label-text">Webhook Ignore Labels</span>
+              <span class="help-text">Items with these labels will be skipped when webhooks trigger poster generation</span>
+            </label>
+            <div v-if="(availableLabels[lib.id] || []).length > 0" class="ignore-labels-grid">
+              <label
+                v-for="label in availableLabels[lib.id] || []"
+                :key="'ignore-' + lib.id + '-' + label"
+                class="label-checkbox ignore-label-checkbox"
+              >
+                <input
+                  type="checkbox"
+                  :checked="(lib.webhookIgnoreLabels || []).includes(label)"
+                  @change="toggleIgnoreLabel(idx, label)"
+                />
+                <span>{{ label }}</span>
+              </label>
+            </div>
+            <p v-else class="no-labels-hint">
+              No labels available. Scan the library and click “Refresh Labels” in the Labels section below.
+            </p>
+          </div>
+
+          <p v-if="lib.id && !supportsPosterAutomation(lib)" class="library-capability-note">
+            <template v-if="lib.contentType === 'audiobook'">
+              This library uses SimPoster’s audiobook cover workflow.
+            </template>
+            <template v-else-if="lib.contentType === 'music'">
+              This Plex section is registered as a music library.
+            </template>
+            <template v-else>
+              This Plex section is registered without movie/TV poster automation.
+            </template>
           </p>
-        </div>
 
-        <div class="library-actions">
-          <button
-            v-if="lib.id"
-            @click="emit('scan-library', lib.id)"
-            :disabled="scanCooldown || scanningLibraryId === lib.id"
-            class="scan-btn"
-            :title="`Scan ${lib.displayName || lib.title || lib.id}`"
-          >
-            {{ scanningLibraryId === lib.id ? 'Scanning...' : 'Scan' }}
-          </button>
-
-          <button
-            v-if="localTvShowLibraries.length > 1"
-            @click="removeTvShowLibrary(idx)"
-            class="remove-btn"
-            :disabled="savedTvShowLibraryIds.has(String(lib.id))"
-          >
-            Remove
-          </button>
+          <div class="library-actions">
+            <button
+              v-if="lib.id && supportsPosterAutomation(lib)"
+              @click="emit('scan-library', lib.id)"
+              :disabled="scanCooldown || scanningLibraryId === lib.id"
+              class="scan-btn"
+              :title="'Scan ' + (lib.displayName || lib.title || lib.id)"
+            >
+              {{ scanningLibraryId === lib.id ? 'Scanning...' : 'Scan' }}
+            </button>
+            <button @click="removeLibrary(idx)" class="remove-btn">Remove</button>
+          </div>
         </div>
-      </div>
       </div>
     </div>
 
@@ -1069,6 +964,55 @@ h4 {
 
 .libraries-grid .section {
   margin-bottom: 0;
+}
+
+.configured-libraries-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.configured-libraries-grid .library-card {
+  margin-bottom: 0;
+}
+
+.library-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  color: var(--text-primary);
+}
+
+.library-card-heading .library-type-badge {
+  margin-left: auto;
+}
+
+.library-type-badge.music {
+  background: rgba(156, 39, 176, 0.15);
+  color: #ce93d8;
+  border: 1px solid rgba(156, 39, 176, 0.3);
+}
+
+.library-type-badge.audiobook {
+  background: rgba(61, 214, 183, 0.13);
+  color: #78e3c1;
+  border: 1px solid rgba(61, 214, 183, 0.3);
+}
+
+.library-type-badge.other {
+  background: rgba(158, 158, 158, 0.12);
+  color: var(--text-muted);
+  border: 1px solid rgba(158, 158, 158, 0.25);
+}
+
+.library-capability-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .section-header-inline {
@@ -1684,4 +1628,12 @@ button:disabled {
   line-height: 1.5;
 }
 
+
+@media (max-width: 900px) {
+  .configured-libraries-grid,
+  .plex-connection-grid,
+  .libraries-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
