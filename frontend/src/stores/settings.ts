@@ -5,13 +5,18 @@ const apiBase = getApiBase()
 
 export type Theme = 'neon' | 'slate' | 'dracula' | 'nord' | 'oled' | 'light'
 
+export type LibraryContentType = 'movie' | 'show' | 'music' | 'audiobook' | 'other'
+
 export type LibraryMapping = {
   id: string
   title?: string
   displayName?: string
+  contentType?: LibraryContentType
+  plexType?: string
   autoGenerateEnabled?: boolean
   autoGeneratePresetId?: string | null
   autoGenerateTemplateId?: string | null
+  webhookIgnoreLabels?: string[]
 }
 
 export type PlexSettings = {
@@ -20,6 +25,7 @@ export type PlexSettings = {
   movieLibraryName: string
   movieLibraryNames?: string[]
   libraryMappings?: LibraryMapping[]
+  configuredLibraryMappings?: LibraryMapping[]
   tvShowLibraryName?: string
   tvShowLibraryNames?: string[]
   tvShowLibraryMappings?: LibraryMapping[]
@@ -130,7 +136,7 @@ const movieSaveLocation = ref<string>('/config/output/{library}/{title}.jpg')
 const tvShowSaveLocation = ref<string>('/config/output/{library}/{title} ({year}).jpg')
 const tvShowSaveMode = ref<string>('flat')
 const saveBatchInSubfolder = ref<boolean>(false)
-const plex = ref<PlexSettings>({ url: '', token: '', movieLibraryName: '', movieLibraryNames: [], libraryMappings: [], tvShowLibraryName: '', tvShowLibraryNames: [], tvShowLibraryMappings: [] })
+const plex = ref<PlexSettings>({ url: '', token: '', movieLibraryName: '', movieLibraryNames: [], libraryMappings: [], configuredLibraryMappings: [], tvShowLibraryName: '', tvShowLibraryNames: [], tvShowLibraryMappings: [] })
 const tmdb = ref<TMDBSettings>({ apiKey: '' })
 const tvdb = ref<TVDBSettings>({ apiKey: '', comingSoon: false })
 const fanart = ref<FanartSettings>({ apiKey: '' })
@@ -189,12 +195,59 @@ async function loadSettings() {
     tvShowSaveLocation.value = data.tvShowSaveLocation ?? data.saveLocation ?? "/config/output/{library}/{title} ({year}).jpg"
     tvShowSaveMode.value = data.tvShowSaveMode ?? 'flat'
     saveBatchInSubfolder.value = !!data.saveBatchInSubfolder
+    const legacyMovieMappings = (data.plex?.libraryMappings ?? []).map((mapping) => ({
+      ...mapping,
+      contentType: 'movie' as LibraryContentType,
+      plexType: mapping.plexType || 'movie',
+    }))
+    const legacyTvMappings = (data.plex?.tvShowLibraryMappings ?? []).map((mapping) => ({
+      ...mapping,
+      contentType: 'show' as LibraryContentType,
+      plexType: mapping.plexType || 'show',
+    }))
+    const configuredLibraryMappings: LibraryMapping[] = [
+      ...(data.plex?.configuredLibraryMappings ?? []),
+    ]
+    const configuredIds = new Set(configuredLibraryMappings.map((mapping) => String(mapping.id)))
+
+    // Merge older Movie/TV mappings when upgrading from the split library model.
+    for (const mapping of [...legacyMovieMappings, ...legacyTvMappings]) {
+      const id = String(mapping.id || '')
+      if (!id || configuredIds.has(id)) continue
+      configuredLibraryMappings.push(mapping)
+      configuredIds.add(id)
+    }
+
+    // Merge existing audiobook selections from the older dedicated settings file.
+    // Canonical mappings win if a section has since been reclassified.
+    try {
+      const audiobookResponse = await fetch(`${apiBase}/api/audiobook-settings`)
+      if (audiobookResponse.ok) {
+        const audiobookData = await audiobookResponse.json()
+        for (const mapping of audiobookData.library_mappings || []) {
+          const id = String(mapping.id || '')
+          if (!id || mapping.enabled === false || configuredIds.has(id)) continue
+          configuredLibraryMappings.push({
+            id,
+            title: mapping.title || id,
+            displayName: mapping.display_name || mapping.title || id,
+            contentType: 'audiobook',
+            plexType: 'artist',
+          })
+          configuredIds.add(id)
+        }
+      }
+    } catch {
+      // Audiobook settings are optional during migration.
+    }
+
     plex.value = {
       url: data.plex?.url ?? '',
       token: data.plex?.token ?? '',
       movieLibraryName: data.plex?.movieLibraryName ?? '',
       movieLibraryNames: data.plex?.movieLibraryNames ?? (data.plex?.movieLibraryName ? [data.plex.movieLibraryName] : []),
       libraryMappings: data.plex?.libraryMappings ?? [],
+      configuredLibraryMappings,
       tvShowLibraryName: data.plex?.tvShowLibraryName ?? '',
       tvShowLibraryNames: data.plex?.tvShowLibraryNames ?? (data.plex?.tvShowLibraryName ? [data.plex.tvShowLibraryName] : []),
       tvShowLibraryMappings: data.plex?.tvShowLibraryMappings ?? [],
