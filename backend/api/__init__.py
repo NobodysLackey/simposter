@@ -6,6 +6,7 @@ from . import (
     movies,
     tv_shows,
     audiobooks,
+    music,
     audiobook_covers,
     audiobook_settings,
     plexsend,
@@ -35,6 +36,7 @@ router.include_router(templates.router)
 router.include_router(movies.router)
 router.include_router(tv_shows.router)
 router.include_router(audiobooks.router)
+router.include_router(music.router)
 router.include_router(audiobook_covers.router)
 router.include_router(audiobook_settings.router)
 router.include_router(plexsend.router)
