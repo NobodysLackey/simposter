@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import MoviesView from './views/MoviesView.vue'
 import TvShowsView from './views/TvShowsView.vue'
 import AudiobooksView from './views/AudiobooksView.vue'
+import MusicView from './views/MusicView.vue'
 import AudiobookSettingsViewV2 from './views/AudiobookSettingsViewV2.vue'
 import SettingsView from './views/SettingsView.vue'
 import LogsView from './views/LogsView.vue'
@@ -28,6 +29,7 @@ export const router = createRouter({
     { path: '/tv-shows/batch-edit', name: 'tv-batch-edit', component: TvBatchEditView },
     { path: '/tv-shows/local-assets', name: 'tv-local-assets', component: LocalAssetsView },
     { path: '/tv-shows/logos', name: 'tv-logos', component: LogosView },
+    { path: '/music', name: 'music', component: MusicView },
     { path: '/audiobooks', name: 'audiobooks', component: AudiobooksView },
     { path: '/settings/audiobooks', name: 'audiobook-settings', component: AudiobookSettingsViewV2 },
     { path: '/backup', name: 'backup', component: BackupRestoreView },
