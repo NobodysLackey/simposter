@@ -39,40 +39,18 @@ const emit = defineEmits<{
 
 const router = useRouter()
 
-const activeKey = computed<TabKey>(() =>
-  props.active === 'audiobook-settings' ? 'audiobooks' : props.active,
-)
+const activeKey = computed<TabKey>(() => props.active)
 
-const activeSubmenuKey = computed(() =>
-  props.active === 'audiobook-settings'
-    ? 'audiobook-settings'
-    : props.activeSubmenu,
-)
+const activeSubmenuKey = computed(() => props.activeSubmenu)
 
-const displayTabs = computed<MenuItem[]>(() => {
-  if (props.tabs.some((tab) => tab.key === 'audiobooks')) return props.tabs
-
-  const audiobookTab: MenuItem = {
-    key: 'audiobooks',
-    label: '🎧 Audiobooks',
-    submenu: [{ key: 'audiobook-settings', label: '⚙️ Settings' }],
-  }
-  const insertionIndex = props.tabs.findIndex((tab) => tab.key === 'template-manager')
-
-  if (insertionIndex < 0) return [...props.tabs, audiobookTab]
-  return [
-    ...props.tabs.slice(0, insertionIndex),
-    audiobookTab,
-    ...props.tabs.slice(insertionIndex),
-  ]
-})
+const displayTabs = computed<MenuItem[]>(() => props.tabs)
 
 const handleTabClick = (tab: MenuItem) => {
   emit('select', tab.key)
 }
 
 const handleSubmenuClick = (parentKey: TabKey, submenuKey: string) => {
-  if (parentKey === 'audiobooks' && submenuKey === 'audiobook-settings') {
+  if (parentKey.startsWith('audiobooks-') && submenuKey === 'audiobook-settings') {
     void router.push({ name: 'audiobook-settings' })
     return
   }
