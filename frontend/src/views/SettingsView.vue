@@ -17,10 +17,14 @@ import PerformanceTab from './settings/PerformanceTab.vue'
 import AdvancedTab from './settings/AdvancedTab.vue'
 import NotificationsTab from './settings/NotificationsTab.vue'
 
+type LibraryContentType = 'movie' | 'show' | 'music' | 'audiobook' | 'other'
+
 interface LibraryMapping {
   id: string
   title?: string
   displayName?: string
+  contentType?: LibraryContentType
+  plexType?: string
   autoGenerateEnabled?: boolean
   autoGeneratePresetId?: string | null
   autoGenerateTemplateId?: string | null
@@ -93,10 +97,9 @@ const localPlexUrl = ref('')
 const localPlexToken = ref('')
 const localPlexLibrary = ref('')
 const localSendLogosToPlex = ref(false)
-const localLibraries = ref<LibraryMapping[]>([])
-const savedLibraryIds = ref<Set<string>>(new Set())
-const localTvShowLibraries = ref<LibraryMapping[]>([])
-const savedTvShowLibraryIds = ref<Set<string>>(new Set())
+const localConfiguredLibraries = ref<LibraryMapping[]>([])
+const localLibraries = computed(() => localConfiguredLibraries.value.filter((library) => library.contentType === 'movie'))
+const localTvShowLibraries = computed(() => localConfiguredLibraries.value.filter((library) => library.contentType === 'show'))
 const localTmdbApiKey = ref('')
 const localTvdbApiKey = ref('')
 const localFanartApiKey = ref('')
@@ -200,51 +203,23 @@ const loadLocalSettings = async () => {
   localPlexLibrary.value = settings.plex.value.movieLibraryName || ''
   localSendLogosToPlex.value = (settings.plex.value as any).sendLogosToPlex ?? false
 
-  // Load movie libraries
-  const hasPersistedLibraries = (settings.plex.value.libraryMappings || []).some((l: LibraryMapping) => l && l.id)
-  const libraryMappings = hasPersistedLibraries
-    ? settings.plex.value.libraryMappings
-    : (settings.plex.value.movieLibraryNames || settings.plex.value.movieLibraryName
-        ? (settings.plex.value.movieLibraryNames || [settings.plex.value.movieLibraryName]).map((n: string | undefined, idx: number) => ({
-            id: n || '',
-            title: n || '',
-            displayName: n || `Library ${idx + 1}`
-          }))
-        : [{ id: '', title: '', displayName: '' }]
-      )
-
-  localLibraries.value = JSON.parse(JSON.stringify(libraryMappings)) as LibraryMapping[]
-
-  savedLibraryIds.value = hasPersistedLibraries
-    ? new Set(
-        (libraryMappings || [])
-          .map((l: LibraryMapping) => (l && l.id ? String(l.id) : ''))
-          .filter(Boolean)
-      )
-    : new Set()
-
-  // Load TV show libraries
-  const hasPersistedTvShowLibraries = (settings.plex.value.tvShowLibraryMappings || []).some((l: LibraryMapping) => l && l.id)
-  const tvShowLibraryMappings = hasPersistedTvShowLibraries
-    ? settings.plex.value.tvShowLibraryMappings
-    : (settings.plex.value.tvShowLibraryNames || settings.plex.value.tvShowLibraryName
-        ? (settings.plex.value.tvShowLibraryNames || [settings.plex.value.tvShowLibraryName]).map((n: string | undefined, idx: number) => ({
-            id: n || '',
-            title: n || '',
-            displayName: n || `TV Library ${idx + 1}`
-          }))
-        : [{ id: '', title: '', displayName: '' }]
-      )
-
-  localTvShowLibraries.value = JSON.parse(JSON.stringify(tvShowLibraryMappings)) as LibraryMapping[]
-
-  savedTvShowLibraryIds.value = hasPersistedTvShowLibraries
-    ? new Set(
-        (tvShowLibraryMappings || [])
-          .map((l: LibraryMapping) => (l && l.id ? String(l.id) : ''))
-          .filter(Boolean)
-      )
-    : new Set()
+  // Load canonical mappings. The store merges legacy Movie/TV and audiobook selections.
+  const canonicalMappings = settings.plex.value.configuredLibraryMappings || []
+  if (canonicalMappings.length > 0) {
+    localConfiguredLibraries.value = JSON.parse(JSON.stringify(canonicalMappings)) as LibraryMapping[]
+  } else {
+    const legacyMovieMappings = (settings.plex.value.libraryMappings || []).map((library: LibraryMapping) => ({
+      ...library,
+      contentType: 'movie' as LibraryContentType,
+      plexType: library.plexType || 'movie',
+    }))
+    const legacyTvMappings = (settings.plex.value.tvShowLibraryMappings || []).map((library: LibraryMapping) => ({
+      ...library,
+      contentType: 'show' as LibraryContentType,
+      plexType: library.plexType || 'show',
+    }))
+    localConfiguredLibraries.value = [...legacyMovieMappings, ...legacyTvMappings]
+  }
 
   localTmdbApiKey.value = settings.tmdb.value.apiKey
   localTvdbApiKey.value = settings.tvdb.value.apiKey
@@ -304,8 +279,7 @@ const captureSettingsSnapshot = () => {
     defaultTvLabelsToRemove: localDefaultTvLabelsToRemove.value,
     plexUrl: localPlexUrl.value,
     plexToken: localPlexToken.value,
-    libraries: localLibraries.value,
-    tvShowLibraries: localTvShowLibraries.value,
+    configuredLibraries: localConfiguredLibraries.value,
     tmdbApiKey: localTmdbApiKey.value,
     tvdbApiKey: localTvdbApiKey.value,
     fanartApiKey: localFanartApiKey.value,
@@ -376,8 +350,7 @@ const checkForChanges = () => {
     defaultTvLabelsToRemove: localDefaultTvLabelsToRemove.value,
     plexUrl: localPlexUrl.value,
     plexToken: localPlexToken.value,
-    libraries: localLibraries.value,
-    tvShowLibraries: localTvShowLibraries.value,
+    configuredLibraries: localConfiguredLibraries.value,
     tmdbApiKey: localTmdbApiKey.value,
     tvdbApiKey: localTvdbApiKey.value,
     fanartApiKey: localFanartApiKey.value,
@@ -437,8 +410,7 @@ const checkForChanges = () => {
   sectionsWithChanges.value.connections =
     localPlexUrl.value !== initial.plexUrl ||
     localPlexToken.value !== initial.plexToken ||
-    JSON.stringify(localLibraries.value) !== JSON.stringify(initial.libraries) ||
-    JSON.stringify(localTvShowLibraries.value) !== JSON.stringify(initial.tvShowLibraries)
+    JSON.stringify(localConfiguredLibraries.value) !== JSON.stringify(initial.configuredLibraries)
 
   sectionsWithChanges.value.performance =
     localConcurrentRenders.value !== initial.concurrentRenders ||
@@ -450,6 +422,46 @@ const checkForChanges = () => {
     JSON.stringify(localSchedulerLibraryIds.value) !== JSON.stringify(initial.schedulerLibraryIds)
 
 
+}
+
+const syncAudiobookLibraries = async () => {
+  try {
+    const apiBase = getApiBase()
+    const response = await fetch(`${apiBase}/api/audiobook-settings`)
+    if (!response.ok) return false
+
+    const current = await response.json()
+    const existing = new Map(
+      (current.library_mappings || []).map((mapping: any) => [String(mapping.id), mapping])
+    )
+    const audiobookLibraries = localConfiguredLibraries.value.filter(
+      (library) => library.id && library.contentType === 'audiobook'
+    )
+
+    const payload = {
+      ...current,
+      library_mappings: audiobookLibraries.map((library) => {
+        const previous: any = existing.get(String(library.id))
+        return {
+          id: String(library.id),
+          title: library.title || library.displayName || library.id,
+          display_name: library.displayName || library.title || library.id,
+          enabled: true,
+          default_preset_id: previous?.default_preset_id || '',
+        }
+      }),
+    }
+
+    const saveResponse = await fetch(`${apiBase}/api/audiobook-settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    return saveResponse.ok
+  } catch (error) {
+    console.error('Failed to sync audiobook library mappings:', error)
+    return false
+  }
 }
 
 const saveSettings = async () => {
@@ -466,11 +478,23 @@ const saveSettings = async () => {
   settings.defaultLabelsToRemove.value = JSON.parse(JSON.stringify(localDefaultLabelsToRemove.value))
   settings.defaultTvLabelsToRemove.value = JSON.parse(JSON.stringify(localDefaultTvLabelsToRemove.value))
   settings.apiOrder.value = [...apiOrder.value]
-  const libs = localLibraries.value.filter(l => l.id || l.title)
-  const tvShowLibs = localTvShowLibraries.value.filter(l => l.id || l.title)
+  const configuredLibs = localConfiguredLibraries.value.filter((library) => library.id || library.title)
+  const libs = configuredLibs.filter((library) => library.contentType === 'movie')
+  const tvShowLibs = configuredLibs.filter((library) => library.contentType === 'show')
   settings.plex.value = {
     url: localPlexUrl.value,
     token: localPlexToken.value,
+    configuredLibraryMappings: configuredLibs.map((library) => ({
+      id: library.id || '',
+      title: library.title || library.id || '',
+      displayName: library.displayName || library.title || library.id || '',
+      contentType: library.contentType || 'other',
+      plexType: library.plexType || '',
+      autoGenerateEnabled: library.autoGenerateEnabled || false,
+      autoGeneratePresetId: library.autoGeneratePresetId || null,
+      autoGenerateTemplateId: library.autoGenerateTemplateId || null,
+      webhookIgnoreLabels: library.webhookIgnoreLabels || [],
+    })),
     movieLibraryName: libs[0]?.id || localPlexLibrary.value || '',
     movieLibraryNames: libs.length > 0 ? libs.map(l => l.id) : undefined,
     libraryMappings: libs.map(l => ({
@@ -544,15 +568,18 @@ const saveSettings = async () => {
 
   await settings.save()
 
+  let audiobookSyncOk = true
   if (!settings.error.value) {
+    audiobookSyncOk = await syncAudiobookLibraries()
     await updateScheduler()
   }
 
-  saved.value = settings.error.value ? `Error: ${settings.error.value}` : 'Saved!'
+  saved.value = settings.error.value
+    ? `Error: ${settings.error.value}`
+    : audiobookSyncOk
+      ? 'Saved!'
+      : 'Saved, but audiobook library sync failed'
   setTimeout(() => (saved.value = ''), 1500)
-  savedLibraryIds.value = new Set(localLibraries.value.filter(l => l.id).map(l => String(l.id)))
-  savedTvShowLibraryIds.value = new Set(localTvShowLibraries.value.filter(l => l.id).map(l => String(l.id)))
-
   watchersEnabled.value = false
   await nextTick()
   captureSettingsSnapshot()
@@ -574,28 +601,27 @@ const testPlexConnection = async () => {
 
     if (data.status === 'ok') {
       plexLibraries.value = data.sections || []
-      const movieLibs = plexLibraries.value.filter(s => s.type === 'movie')
-      const tvShowLibs = plexLibraries.value.filter(s => s.type === 'show')
-      const movieSectionsList = movieLibs.map((s: PlexLibrary) => s.title).join(', ')
-      const tvShowSectionsList = tvShowLibs.map((s: PlexLibrary) => s.title).join(', ')
-      testConnection.value = `✓ Connected! Found ${movieLibs.length} movie libraries: ${movieSectionsList}${tvShowLibs.length > 0 ? ` and ${tvShowLibs.length} TV show libraries: ${tvShowSectionsList}` : ''}`
-      if (movieLibs.length > 0) {
-        if (!localLibraries.value.length || localLibraries.value.every(l => !l.id)) {
-          localLibraries.value = movieLibs.map((s: PlexLibrary, idx: number) => ({
-            id: s.key,
-            title: s.title,
-            displayName: s.title || `Library ${idx + 1}`,
-          }))
-        }
-      }
-      if (tvShowLibs.length > 0) {
-        if (!localTvShowLibraries.value.length || localTvShowLibraries.value.every(l => !l.id)) {
-          localTvShowLibraries.value = tvShowLibs.map((s: PlexLibrary, idx: number) => ({
-            id: s.key,
-            title: s.title,
-            displayName: s.title || `TV Library ${idx + 1}`,
-          }))
-        }
+      const sectionSummary = plexLibraries.value
+        .map((section: PlexLibrary) => section.title + ' (' + section.type + ')')
+        .join(', ')
+      testConnection.value = `✓ Connected! Found ${plexLibraries.value.length} Plex libraries${sectionSummary ? ': ' + sectionSummary : ''}`
+
+      // Preserve existing configuration. Only auto-seed all discovered sections on a truly empty setup.
+      if (localConfiguredLibraries.value.length === 0 && plexLibraries.value.length > 0) {
+        localConfiguredLibraries.value = plexLibraries.value.map((section: PlexLibrary) => ({
+          id: String(section.key),
+          title: section.title,
+          displayName: section.title,
+          plexType: section.type,
+          contentType:
+            section.type === 'movie'
+              ? 'movie'
+              : section.type === 'show'
+                ? 'show'
+                : section.type === 'artist' || section.type === 'music'
+                  ? 'music'
+                  : 'other',
+        }))
       }
     } else {
       testConnection.value = `✗ ${data.error}: ${data.message}`
@@ -1063,8 +1089,7 @@ watch([
   localDefaultTvLabelsToRemove,
   localPlexUrl,
   localPlexToken,
-  localLibraries,
-  localTvShowLibraries,
+  localConfiguredLibraries,
   localTmdbApiKey,
   localTvdbApiKey,
   localFanartApiKey,
@@ -1233,10 +1258,7 @@ onMounted(() => {
         v-if="activeTab === 'libraries'"
         :plexUrl="localPlexUrl"
         :plexToken="localPlexToken"
-        :libraries="localLibraries"
-        :tvShowLibraries="localTvShowLibraries"
-        :savedLibraryIds="savedLibraryIds"
-        :savedTvShowLibraryIds="savedTvShowLibraryIds"
+        :configuredLibraries="localConfiguredLibraries"
         :testConnection="testConnection"
         :testConnectionLoading="testConnectionLoading"
         :plexLibraries="plexLibraries"
@@ -1255,8 +1277,7 @@ onMounted(() => {
         @update:sendLogosToPlex="localSendLogosToPlex = $event; hasUnsavedChanges = true"
         @update:plexUrl="localPlexUrl = $event"
         @update:plexToken="localPlexToken = $event"
-        @update:libraries="localLibraries = $event; hasUnsavedChanges = true"
-        @update:tvShowLibraries="localTvShowLibraries = $event; hasUnsavedChanges = true"
+        @update:configuredLibraries="localConfiguredLibraries = $event; hasUnsavedChanges = true"
         @update:schedulerEnabled="localSchedulerEnabled = $event"
         @update:schedulerCronExpression="localSchedulerCronExpression = $event"
         @update:schedulerLibraryIds="localSchedulerLibraryIds = $event"
