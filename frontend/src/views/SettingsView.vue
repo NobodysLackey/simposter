@@ -478,7 +478,7 @@ const saveSettings = async () => {
   settings.defaultLabelsToRemove.value = JSON.parse(JSON.stringify(localDefaultLabelsToRemove.value))
   settings.defaultTvLabelsToRemove.value = JSON.parse(JSON.stringify(localDefaultTvLabelsToRemove.value))
   settings.apiOrder.value = [...apiOrder.value]
-  const configuredLibs = localConfiguredLibraries.value.filter((library) => library.id || library.title)
+  const configuredLibs = localConfiguredLibraries.value.filter((library) => library.id)
   const libs = configuredLibs.filter((library) => library.contentType === 'movie')
   const tvShowLibs = configuredLibs.filter((library) => library.contentType === 'show')
   settings.plex.value = {
@@ -495,8 +495,8 @@ const saveSettings = async () => {
       autoGenerateTemplateId: library.autoGenerateTemplateId || null,
       webhookIgnoreLabels: library.webhookIgnoreLabels || [],
     })),
-    movieLibraryName: libs[0]?.id || localPlexLibrary.value || '',
-    movieLibraryNames: libs.length > 0 ? libs.map(l => l.id) : undefined,
+    movieLibraryName: libs[0]?.id || '',
+    movieLibraryNames: libs.map(l => l.id),
     libraryMappings: libs.map(l => ({
       id: l.id || '',
       title: l.title || l.id || '',
@@ -507,7 +507,7 @@ const saveSettings = async () => {
       webhookIgnoreLabels: l.webhookIgnoreLabels || [],
     })),
     tvShowLibraryName: tvShowLibs[0]?.id || '',
-    tvShowLibraryNames: tvShowLibs.length > 0 ? tvShowLibs.map(l => l.id) : undefined,
+    tvShowLibraryNames: tvShowLibs.map(l => l.id),
     tvShowLibraryMappings: tvShowLibs.map(l => ({
       id: l.id || '',
       title: l.title || l.id || '',
